@@ -2,24 +2,21 @@
 
 ## Overview
 
-A Streamlit-based real-time Oregon fly/tenkara fishing dashboard with:
-- Live USGS river flow map (Folium + streamlit-folium)
-- ODFW stocking schedule data
-- AI Fishing Buddy powered by OpenRouter
-- Karpathy Wiki — persistent PostgreSQL memory system (preferences, fishing logs, spot wiki)
+A real-time Oregon fly/tenkara fishing dashboard rebuilt from Streamlit → Flask + vanilla JS + ECharts + Leaflet. Dark glassmorphism UI with 7 interactive tabs.
 
 ## Stack
 
-- **Monorepo tool**: pnpm workspaces (Node.js artifacts) + Python (Streamlit artifact)
-- **Frontend**: Streamlit (Python 3.11) — `artifacts/fishing-dashboard/`
-- **Database**: PostgreSQL + psycopg2 (schema initialized on first run)
-- **AI**: OpenRouter API (OpenAI-compatible client), tool-calling loop
-- **Map**: Folium + streamlit-folium, CartoDB dark basemap
+- **Monorepo tool**: pnpm workspaces (Node.js artifacts) + Python (Flask artifact)
+- **Frontend**: Single-page HTML/JS with ECharts 5.5, Leaflet 1.9 — `artifacts/fishing-dashboard/static/index.html`
+- **Backend**: Flask (Python 3.11) — `artifacts/fishing-dashboard/app.py`
+- **Cache**: Custom TTL cache (`cache_utils.py`) replacing Streamlit's `@st.cache_data`
+- **Map**: Leaflet with CartoDB dark tiles, color-coded river pins
+- **Charts**: ECharts — gauge, bar, line, heatmap, scatter
 - **API codegen**: Orval (from OpenAPI spec, for Node.js services)
 
 ## Key Commands
 
-- **Run dashboard**: `cd artifacts/fishing-dashboard && streamlit run app.py --server.port 5000 --server.headless true`
+- **Run dashboard**: `cd artifacts/fishing-dashboard && pip install -q flask flask-cors requests && PORT=5000 python app.py`
 - `pnpm run typecheck` — full typecheck across Node.js packages
 - `pnpm run build` — typecheck + build all Node.js packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas
@@ -28,40 +25,39 @@ A Streamlit-based real-time Oregon fly/tenkara fishing dashboard with:
 
 | File | Purpose |
 |---|---|
-| `app.py` | Main Streamlit entry point, sidebar AI Buddy, tab routing |
-| `database.py` | PostgreSQL schema, CRUD for preferences/logs/wiki/chat |
-| `data_fetchers.py` | USGS flow API, ODFW stocking (cached with st.cache_data) |
-| `ai_buddy.py` | OpenRouter AI with tool-calling loop (query_wiki, get_live_data, update_wiki) |
-| `map_view.py` | Folium map tab with color-coded river pins |
-| `live_data_tab.py` | Flow cards, tenkara ranking, stocking table |
-| `wiki_tab.py` | Preferences editor, fishing log, spot wiki |
+| `app.py` | Flask entry point; serves static/index.html and all /api/* routes |
+| `static/index.html` | Full SPA: ECharts + Leaflet, 7-tab dark dashboard |
+| `cache_utils.py` | TTL cache decorator (replaces st.cache_data) |
+| `data_fetchers.py` | USGS flow API, ODFW stocking (34 Oregon rivers) |
+| `fish_passage.py` | DART Bonneville passage counts, run timing calendar |
+| `weather_fetchers.py` | NWS forecast zones (8 Oregon weather zones) |
+| `oregon_gov_data.py` | NDBC buoys (3) + NOAA tides (4 stations) |
+| `hatcheries.py` | ODFW hatchery + stocked lake static data |
 
-## Secrets Required
+## API Endpoints
 
-- `OPENROUTER_API_KEY` — for AI Fishing Buddy (OpenRouter)
-- `DATABASE_URL` — PostgreSQL connection (auto-provisioned by Replit)
+| Route | Description |
+|---|---|
+| `GET /` | Serves index.html |
+| `GET /api/flows` | USGS river flows + conditions for 34 rivers |
+| `GET /api/passage` | Bonneville Dam fish passage counts + run calendar |
+| `GET /api/weather` | NWS forecast for 8 Oregon zones |
+| `GET /api/coastal` | NDBC buoy data + NOAA tide predictions |
+| `GET /api/hatcheries` | ODFW hatchery and stocked lake info |
+| `POST /api/refresh` | Clear all caches and force re-fetch |
 
-## Karpathy Wiki — DB Tables
+## Dashboard Tabs
 
-- `preferences` — user home base, favorite rivers, style, gear, drive limits
-- `fishing_logs` — dated trip logs with river/spot/flies/fish/notes
-- `wiki_entries` — spot knowledge, patterns, access notes (confidence + privacy labels)
-- `wiki_audit_log` — every AI write is logged for transparency
-- `river_gage_map` — Oregon river→USGS gage mapping (10 rivers pre-seeded)
-- `chat_history` — persistent conversation history
-
-## Oregon Rivers Pre-Seeded
-
-Deschutes, McKenzie, Metolius, Crooked, North Santiam, Sandy, North Umpqua, Rogue, Wilson, Willamette
-
-## AI Tools Implemented
-
-1. `query_wiki` — searches preferences + logs + wiki entries before answering
-2. `get_live_data` — fetches USGS flow snapshot for model context
-3. `update_wiki` — proposes wiki entries (requires user confirmation for preferences/secret spots)
+1. **Map** — Leaflet map with color-coded river pins (condition + flow)
+2. **Rivers** — ECharts gauge + bar charts, condition cards for 34 rivers
+3. **Temps** — Tenkara suitability by temperature range
+4. **Fish Passage** — Bonneville Dam passage counts (heatmap + species breakdown)
+5. **Coastal** — NDBC buoy data + NOAA tide charts
+6. **Weather** — NWS forecasts by region
+7. **Hatcheries** — ODFW hatchery locations and stocked lakes
 
 ## Workflow
 
-- `Oregon Fishing Dashboard` — runs Streamlit on port 5000
+- `Oregon Fishing Dashboard` — runs Flask on port 5000
 
 See the `pnpm-workspace` skill for Node.js workspace structure details.

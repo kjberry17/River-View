@@ -1,11 +1,9 @@
 import requests
-import streamlit as st
 from datetime import datetime, timedelta
+from cache_utils import ttl_cache
 
 DART_URL = "https://www.cbr.washington.edu/dart/cs/php/rpt/adult_daily.php"
-
 BONNEVILLE_CODE = "BON"
-MCNARY_CODE = "MCN"
 
 PASSAGE_SPECIES = {
     "Chinook": "Chin",
@@ -23,6 +21,11 @@ FISH_ICONS = {
     "Sockeye": "🔴",
     "Shad": "🐡",
     "Lamprey": "🐍",
+    "Spring Chinook": "🐟",
+    "Fall Chinook": "🐟",
+    "Summer Steelhead": "🎣",
+    "Winter Steelhead": "🎣",
+    "Bull Trout": "🧊",
 }
 
 SPECIES_NOTES = {
@@ -35,13 +38,12 @@ SPECIES_NOTES = {
 }
 
 
-@st.cache_data(ttl=3600)
+@ttl_cache(ttl=3600)
 def fetch_bonneville_passage():
     today = datetime.now()
     start = (today - timedelta(days=7)).strftime("%-m/%-d")
     end = today.strftime("%-m/%-d")
     year = today.year
-
     try:
         params = {
             "proj": BONNEVILLE_CODE,
@@ -80,14 +82,13 @@ def _parse_dart_csv(csv_text: str) -> dict:
             continue
         if len(cols) >= 3:
             try:
-                date_str = cols[0]
                 for i, col_name in enumerate(header[1:], 1):
                     if i < len(cols) and cols[i] and cols[i] != "N/A":
                         species = col_name.strip()
                         val = float(cols[i])
                         if species not in results:
                             results[species] = []
-                        results[species].append({"date": date_str, "count": int(val)})
+                        results[species].append({"date": cols[0], "count": int(val)})
             except Exception:
                 pass
     totals = {}
@@ -133,8 +134,8 @@ def get_run_timing_calendar() -> dict:
         "Coho (Silver)": {"peak_months": [9, 10, 11], "rivers": ["Coastal streams", "Rogue", "Umpqua", "Siletz", "Alsea", "Wilson"], "icon": "🐠"},
         "Summer Steelhead": {"peak_months": [5, 6, 7, 8, 9], "rivers": ["Deschutes", "Grande Ronde", "North Umpqua", "Rogue", "Umatilla"], "icon": "🎣"},
         "Winter Steelhead": {"peak_months": [12, 1, 2, 3], "rivers": ["Wilson", "Nestucca", "Siletz", "Alsea", "Sandy", "Clackamas", "North Umpqua"], "icon": "🎣"},
-        "American Shad": {"peak_months": [5, 6, 7], "rivers": ["Columbia River (light tackle — tons of fun)"], "icon": "🐡"},
-        "Sockeye": {"peak_months": [6, 7, 8], "rivers": ["Upper Columbia (limited Oregon access)"], "icon": "🔴"},
+        "American Shad": {"peak_months": [5, 6, 7], "rivers": ["Columbia River"], "icon": "🐡"},
+        "Sockeye": {"peak_months": [6, 7, 8], "rivers": ["Upper Columbia"], "icon": "🔴"},
         "Bull Trout": {"peak_months": [8, 9, 10], "rivers": ["Metolius (C&R only)", "Lake Billy Chinook", "Deschutes headwaters"], "icon": "🧊"},
         "Sea-Run Cutthroat": {"peak_months": [7, 8, 9], "rivers": ["Wilson", "Nestucca", "Siletz", "Alsea", "Chetco"], "icon": "🌊"},
         "Sturgeon": {"peak_months": [1, 2, 3, 4, 5, 11, 12], "rivers": ["Columbia", "Willamette (below falls)", "Snake"], "icon": "🦕"},

@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oregon Fishing Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+:root {
+  --bg: #050b18;
+  --surface: #091525;
+  --card: #0d1e36;
+  --card2: #0f2040;
+  --border: rgba(0,180,255,0.12);
+  --border2: rgba(0,180,255,0.22);
+  --cyan: #00d4ff;
+  --cyan2: #00aacc;
+  --green: #00ff87;
+  --green2: #00cc6a;
+  --orange: #ff9f43;
+  --red: #ff4757;
+  --purple: #a55eea;
+  --yellow: #ffd60a;
+  --text: #dceeff;
+  --text2: #7da8cc;
+  --text3: #3d6480;
+  --mono: 'JetBrains Mono', monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:14px;overflow-x:hidden;}
+
+/* ── Header ── */
+header{
+  position:sticky;top:0;z-index:100;
+  background:linear-gradient(135deg,#04101f 0%,#071829 100%);
+  border-bottom:1px solid var(--border2);
+  padding:0 24px;
+  display:flex;align-items:center;gap:24px;height:60px;
+  box-shadow:0 4px 32px rgba(0,0,0,.6);
+}
+.logo{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.logo-icon{font-size:26px;filter:drop-shadow(0 0 8px rgba(0,212,255,.7));}
+.logo-text{font-size:15px;font-weight:700;letter-spacing:-.3px;line-height:1.2;}
+.logo-text span{display:block;font-size:10px;font-weight:400;color:var(--text2);letter-spacing:.5px;text-transform:uppercase;}
+.stats-bar{display:flex;gap:20px;flex:1;overflow:hidden;}
+.stat-pill{display:flex;align-items:center;gap:7px;background:rgba(0,180,255,.07);border:1px solid rgba(0,180,255,.12);border-radius:20px;padding:4px 12px;white-space:nowrap;font-size:12px;}
+.stat-pill .label{color:var(--text2);}
+.stat-pill .value{font-weight:700;font-family:var(--mono);color:var(--cyan);}
+.stat-pill.green .value{color:var(--green);}
+.stat-pill.orange .value{color:var(--orange);}
+.refresh-btn{margin-left:auto;flex-shrink:0;background:rgba(0,212,255,.12);border:1px solid rgba(0,212,255,.3);color:var(--cyan);padding:7px 16px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;transition:.2s;letter-spacing:.3px;}
+.refresh-btn:hover{background:rgba(0,212,255,.22);box-shadow:0 0 16px rgba(0,212,255,.2);}
+.refresh-btn.spinning{animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ── Tabs ── */
+nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;gap:4px;overflow-x:auto;}
+.tab-btn{padding:12px 18px;background:none;border:none;color:var(--text2);cursor:pointer;font-size:13px;font-weight:500;border-bottom:2px solid transparent;transition:.2s;white-space:nowrap;font-family:'Inter',sans-serif;}
+.tab-btn:hover{color:var(--text);background:rgba(0,180,255,.06);}
+.tab-btn.active{color:var(--cyan);border-bottom-color:var(--cyan);background:rgba(0,212,255,.06);}
+
+/* ── Main Layout ── */
+main{padding:20px 24px 40px;}
+.tab-section{display:none;}
+.tab-section.active{display:block;}
+
+/* ── Section heading ── */
+.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;}
+.section-title span{font-size:20px;}
+.section-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+
+/* ── Loading spinner ── */
+.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;gap:12px;color:var(--text2);}
+.spinner{width:36px;height:36px;border:3px solid rgba(0,212,255,.15);border-top-color:var(--cyan);border-radius:50%;animation:spin .7s linear infinite;}
+
+/* ── Cards grid ── */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:20px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;transition:.2s;position:relative;overflow:hidden;}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+.card.good::before{background:linear-gradient(90deg,var(--green),transparent);}
+.card.fair::before{background:linear-gradient(90deg,var(--yellow),transparent);}
+.card.caution::before{background:linear-gradient(90deg,var(--orange),transparent);}
+.card.poor::before{background:linear-gradient(90deg,var(--red),transparent);}
+.card.unknown::before{background:linear-gradient(90deg,var(--text3),transparent);}
+.card:hover{border-color:var(--border2);box-shadow:0 4px 24px rgba(0,0,0,.4);}
+.card-river{font-size:15px;font-weight:700;margin-bottom:2px;}
+.card-region{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;}
+.card-cfs{font-size:28px;font-weight:800;font-family:var(--mono);line-height:1;}
+.card-cfs.good{color:var(--green);}
+.card-cfs.fair{color:var(--yellow);}
+.card-cfs.caution{color:var(--orange);}
+.card-cfs.poor{color:var(--red);}
+.card-cfs.unknown{color:var(--text2);}
+.card-label{font-size:11px;color:var(--text2);margin-top:4px;margin-bottom:8px;}
+.card-pills{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;}
+.pill{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;letter-spacing:.2px;}
+.pill.temp{background:rgba(0,212,255,.12);color:var(--cyan);}
+.pill.stocked{background:rgba(0,255,135,.12);color:var(--green);}
+.pill.tenkara{background:rgba(165,94,234,.12);color:var(--purple);}
+.pill.species{background:rgba(255,159,67,.08);color:var(--orange);}
+.card-meta{font-size:10px;color:var(--text3);margin-top:8px;line-height:1.5;}
+
+/* ── ECharts containers ── */
+.chart-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;}
+.chart-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.echart{width:100%;min-height:320px;}
+.echart-tall{width:100%;min-height:480px;}
+.echart-sm{width:100%;min-height:220px;}
+
+/* ── Map ── */
+#map{width:100%;height:540px;border-radius:12px;border:1px solid var(--border);overflow:hidden;}
+.leaflet-container{background:#07111f;}
+
+/* ── Two-col ── */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
+@media(max-width:900px){.two-col,.three-col{grid-template-columns:1fr;}}
+
+/* ── Weather cards ── */
+.weather-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
+.weather-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;}
+.weather-zone{font-size:13px;font-weight:700;margin-bottom:4px;}
+.weather-temp{font-size:30px;font-weight:800;font-family:var(--mono);}
+.weather-desc{font-size:11px;color:var(--text2);margin:4px 0 10px;}
+.weather-score-bar{height:4px;border-radius:2px;background:rgba(255,255,255,.08);margin:8px 0;}
+.weather-score-fill{height:100%;border-radius:2px;}
+.weather-meta{font-size:10px;color:var(--text3);margin-top:6px;}
+.score-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-top:4px;}
+
+/* ── Coastal ── */
+.buoy-card{background:linear-gradient(135deg,#091a2e,#0a2035);border:1px solid rgba(0,170,204,.2);border-radius:12px;padding:16px;}
+.buoy-name{font-size:13px;font-weight:700;color:var(--cyan);margin-bottom:4px;}
+.buoy-desc{font-size:10px;color:var(--text3);margin-bottom:10px;}
+.buoy-sst{font-size:26px;font-weight:800;font-family:var(--mono);color:#4dd0e1;}
+.tide-card{background:linear-gradient(135deg,#07182a,#091f33);border:1px solid rgba(0,150,200,.18);border-radius:12px;padding:16px;}
+.tide-name{font-size:13px;font-weight:700;color:#4dd0e1;margin-bottom:4px;}
+.tide-level{font-size:26px;font-weight:800;font-family:var(--mono);}
+.tide-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2);margin-top:4px;}
+.tide-events{margin-top:8px;border-top:1px solid rgba(0,150,200,.12);padding-top:8px;}
+.tide-event{font-size:11px;color:var(--text2);padding:2px 0;}
+
+/* ── Passage calendar ── */
+.calendar-table{width:100%;border-collapse:collapse;font-size:11px;}
+.calendar-table th{background:rgba(0,180,255,.08);color:var(--text2);font-weight:600;padding:6px 8px;text-align:center;border:1px solid var(--border);}
+.calendar-table td{border:1px solid rgba(0,180,255,.06);padding:5px 8px;color:var(--text2);text-align:center;}
+.calendar-table td.peak{background:rgba(0,212,255,.15);color:var(--cyan);font-weight:700;}
+.calendar-table td.current-peak{background:rgba(0,255,135,.2);color:var(--green);font-weight:700;box-shadow:inset 0 0 0 1px var(--green);}
+.calendar-table td.species-name{text-align:left;color:var(--text);font-weight:600;padding-left:10px;white-space:nowrap;}
+
+/* ── Filter bar ── */
+.filter-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center;}
+.filter-bar input,.filter-bar select{background:var(--card);border:1px solid var(--border);color:var(--text);padding:7px 12px;border-radius:8px;font-size:12px;font-family:'Inter',sans-serif;outline:none;}
+.filter-bar input:focus,.filter-bar select:focus{border-color:var(--border2);}
+.filter-label{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
+
+/* ── Stocking table ── */
+.data-table{width:100%;border-collapse:collapse;font-size:12px;}
+.data-table th{background:rgba(0,180,255,.08);color:var(--text2);font-weight:600;padding:9px 12px;text-align:left;border-bottom:1px solid var(--border);}
+.data-table td{padding:9px 12px;border-bottom:1px solid rgba(0,180,255,.05);color:var(--text);}
+.data-table tr:hover td{background:rgba(0,180,255,.04);}
+
+/* ── Legend ── */
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);padding:10px 0;margin-bottom:14px;}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-dot{width:10px;height:10px;border-radius:50%;}
+
+/* ── Map legend ── */
+.map-legend{position:absolute;bottom:20px;right:10px;z-index:900;background:rgba(5,15,30,.9);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:10px;min-width:160px;}
+
+/* ── Passage hero ── */
+.passage-hero{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:20px;}
+.passage-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;}
+.passage-species{font-size:13px;font-weight:700;margin-bottom:4px;}
+.passage-count{font-size:32px;font-weight:800;font-family:var(--mono);color:var(--cyan);}
+.passage-unit{font-size:10px;color:var(--text3);}
+.passage-delta{font-size:11px;margin-top:4px;}
+.passage-delta.up{color:var(--green);}
+.passage-delta.down{color:var(--red);}
+
+/* ── Hatchery ── */
+.hatchery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;}
+.hatchery-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;}
+.hatchery-name{font-size:13px;font-weight:700;color:var(--orange);margin-bottom:2px;}
+.hatchery-river{font-size:10px;color:var(--text3);margin-bottom:6px;}
+.hatchery-species{font-size:11px;color:var(--text2);}
+.hatchery-note{font-size:10px;color:var(--text3);margin-top:4px;}
+
+/* ── Scroll bars ── */
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(0,180,255,.2);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:rgba(0,180,255,.35);}
+
+/* ── Footer ── */
+footer{text-align:center;padding:24px;font-size:10px;color:var(--text3);border-top:1px solid var(--border);margin-top:40px;}
+footer a{color:var(--text2);text-decoration:none;}
+footer a:hover{color:var(--cyan);}
+
+/* ── Animations ── */
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+.fade-in{animation:fadeIn .3s ease both;}
+@keyframes pulse{0%,100%{opacity:.6;}50%{opacity:1;}}
+.live-dot{display:inline-block;width:6px;height:6px;background:var(--green);border-radius:50%;margin-right:4px;animation:pulse 2s ease-in-out infinite;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span class="logo-icon">🎣</span>
+    <div class="logo-text">
+      Oregon Fishing Dashboard
+      <span>Live USGS · NOAA · DART · NWS · v4.0</span>
+    </div>
+  </div>
+  <div class="stats-bar" id="stats-bar">
+    <div class="stat-pill"><span class="live-dot"></span><span class="label">Loading…</span></div>
+  </div>
+  <button class="refresh-btn" id="refresh-btn" onclick="refreshAll()">⟳ Refresh</button>
+</header>
+
+<nav>
+  <button class="tab-btn active" onclick="showTab('map')">🗺️ Map</button>
+  <button class="tab-btn" onclick="showTab('rivers')">💧 Rivers</button>
+  <button class="tab-btn" onclick="showTab('temps')">🌡️ Temps</button>
+  <button class="tab-btn" onclick="showTab('passage')">🐟 Fish Passage</button>
+  <button class="tab-btn" onclick="showTab('coastal')">🌊 Coastal</button>
+  <button class="tab-btn" onclick="showTab('weather')">🌤️ Weather</button>
+  <button class="tab-btn" onclick="showTab('hatcheries')">🏭 Hatcheries</button>
+</nav>
+
+<main>
+
+<!-- ── MAP ── -->
+<div id="tab-map" class="tab-section active fade-in">
+  <div class="section-head">
+    <div>
+      <div class="section-title"><span>🗺️</span> Live Oregon Fishing Map</div>
+      <div class="section-sub">Click any marker for details · Color = flow condition · 🐟 = stocked · 🎣 = tenkara-friendly</div>
+    </div>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#00ff87"></div> Good flows</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ffd60a"></div> Fair</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ff9f43"></div> High/Caution</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ff4757"></div> Dangerous</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#a55eea"></div> Too Low</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3d6480"></div> No Data</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#26c6da"></div> Spring-fed</div>
+  </div>
+  <div id="map"></div>
+  <div id="map-tenkara" style="margin-top:20px;"></div>
+</div>
+
+<!-- ── RIVERS ── -->
+<div id="tab-rivers" class="tab-section fade-in">
+  <div class="section-head">
+    <div>
+      <div class="section-title"><span>💧</span> Stream Flows — 33 Oregon Rivers</div>
+      <div class="section-sub">Live USGS Water Services · Sensors update every 15 min · Cached 5 min</div>
+    </div>
+  </div>
+  <div class="filter-bar">
+    <input type="text" id="river-search" placeholder="Search river…" oninput="filterRivers()">
+    <select id="region-filter" onchange="filterRivers()">
+      <option value="">All Regions</option>
+    </select>
+    <select id="status-filter" onchange="filterRivers()">
+      <option value="">All Status</option>
+      <option value="good">🟢 Good</option>
+      <option value="fair">🟡 Fair</option>
+      <option value="caution">🟠 High/Caution</option>
+      <option value="poor">🔴 Danger/Low</option>
+      <option value="unknown">⚫ No Data</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);">
+      <input type="checkbox" id="tenkara-only" onchange="filterRivers()" style="accent-color:var(--purple)"> 🎣 Tenkara only
+    </label>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-title">📊 Flow Comparison — All Rivers (CFS)</div>
+    <div id="flow-chart" class="echart-tall"></div>
+  </div>
+  <div class="two-col">
+    <div class="chart-wrap">
+      <div class="chart-title">🗂️ Conditions by Region</div>
+      <div id="region-chart" class="echart-sm"></div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">🎣 Tenkara Score Distribution</div>
+      <div id="tenkara-pie" class="echart-sm"></div>
+    </div>
+  </div>
+  <div id="river-cards" class="card-grid"></div>
+</div>
+
+<!-- ── TEMPS ── -->
+<div id="tab-temps" class="tab-section fade-in">
+  <div class="section-head">
+    <div>
+      <div class="section-title"><span>🌡️</span> Stream Temperatures</div>
+      <div class="section-sub">USGS parameter 00010 · Ideal trout range: 50–68°F</div>
+    </div>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-title">🌡️ Temperature by River — Live Readings</div>
+    <div id="temp-chart" class="echart"></div>
+  </div>
+  <div class="two-col">
+    <div class="chart-wrap">
+      <div class="chart-title">📊 Temp Distribution</div>
+      <div id="temp-dist-chart" class="echart-sm"></div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">🐟 Temperature Activity Guide</div>
+      <div style="padding:8px 0;">
+        <table class="data-table">
+          <tr><th>Range</th><th>Fish Activity</th><th>Strategy</th></tr>
+          <tr><td>&lt;35°F</td><td>🥶 Very Sluggish</td><td>Deep slow nymphs, warmest hours</td></tr>
+          <tr><td>35–45°F</td><td>❄️ Slow</td><td>Bottom nymphs, midges</td></tr>
+          <tr><td>45–50°F</td><td>🟡 Picking Up</td><td>Nymphs, wet flies, small emergers</td></tr>
+          <tr><td>50–60°F</td><td>🟢 <b>Prime</b></td><td>Excellent hatches — dries, nymphs all work</td></tr>
+          <tr><td>60–68°F</td><td>🟢 <b>Peak</b></td><td>Peak feeding — dries, hoppers, dry-dropper</td></tr>
+          <tr><td>68–72°F</td><td>🟠 Warm</td><td>Fish early/late. Land fish quickly</td></tr>
+          <tr><td>&gt;72°F</td><td>🔴 Stress</td><td>Consider not fishing — thermal stress</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── FISH PASSAGE ── -->
+<div id="tab-passage" class="tab-section fade-in">
+  <div class="section-head">
+    <div>
+      <div class="section-title"><span>🐟</span> Bonneville Dam Fish Passage</div>
+      <div class="section-sub">Columbia Basin Research (DART) · Daily counts at Bonneville Dam</div>
+    </div>
+  </div>
+  <div id="passage-hero" class="passage-hero"></div>
+  <div class="two-col">
+    <div class="chart-wrap">
+      <div class="chart-title">📊 Current vs 7-Day Average</div>
+      <div id="passage-chart" class="echart"></div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">📅 Annual Run Timing Calendar</div>
+      <div id="calendar-wrap" style="overflow-x:auto;padding-top:4px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── COASTAL ── -->
+<div id="tab-coastal" class="tab-section fade-in">
+  <div class="section-head">
+    <div>
+      <div class="section-title"><span>🌊</span> Oregon Coast — Live Ocean & Tides</div>
+      <div class="section-sub">NDBC Buoys (10 min) · NOAA Tide Stations (6 min)</div>
+    </div>
+  </div>
+  <div class="two-col" style="margin-bottom:20px;">
+    <div>
+      <div class="section-title" style="font-size:14px;margin-bottom:10px;">📡 NDBC Ocean Buoys</div>
+      <div id="buoy-cards"></div>
+    </div>
+    <div>
+      <div class="section-title" style="font-size:14px;margin-bottom:10px;">🌊 NOAA Tide Stations</div>
+      <div id="tide-cards"></div>
+    </div>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-title">🌊 Buoy Conditions Comparison</div>
+    <div id="buoy-chart" class="echart-sm"></div>
+  </div>
+  <div class="chart-wrap" style="background:rgba(0,30,60,.4);border-color:rgba(0,150,200,.2);">
+    <div class="chart-title">💡 Oregon Tidal Fishing Tips</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.7;padding:4px 0;">
+      <b style="color:var(--cyan)">Rising tides</b> push salmon and steelhead into tidal rivers (Alsea, Nestucca, Coquille). 
+      Fish estuary edges 1–2 hours before high tide. 
+      <b style="color:var(--cyan)">Falling tides</b> concentrate baitfish near structure — perch, stripers, and rockfish follow. 
+      Check bar forecasts at <a href="https://www.westcoast.fisheries.noaa.gov/" target="_blank" style="color:var(--cyan)">NOAA West Coast</a> before any bar crossing.
+    </div>
+  </div>
+</div>
+
+<!-- ── WEATHER ── -->
+<div id="tab-weather" class="tab-section fade-in">
+  <div class="section-head">
+    <div>
+      <div class="section-title"><span>🌤️</span> Weather by Fishing Zone</div>
+      <div class="section-sub">NWS forecasts · Updated every 30 min · Fishing scores auto-calculated</div>
+    </div>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-title">🎯 Fishing Score by Zone</div>
+    <div id="weather-chart" class="echart-sm"></div>
+  </div>
+  <div id="weather-cards" class="weather-grid"></div>
+</div>
+
+<!-- ── HATCHERIES ── -->
+<div id="tab-hatcheries" class="tab-section fade-in">
+  <div class="section-head">
+    <div>
+      <div class="section-title"><span>🏭</span> Oregon Hatcheries & Stocking</div>
+      <div class="section-sub">31 ODFW hatcheries · 20 trophy lakes · Seasonal stocking schedule</div>
+    </div>
+  </div>
+  <div class="two-col">
+    <div>
+      <div class="section-title" style="font-size:14px;margin-bottom:12px;">🏭 Hatcheries</div>
+      <div id="hatchery-list" class="hatchery-grid"></div>
+    </div>
+    <div>
+      <div class="section-title" style="font-size:14px;margin-bottom:12px;">📋 Current Stocking Schedule</div>
+      <div class="chart-wrap" style="padding:0;overflow:auto;max-height:600px;">
+        <table class="data-table" id="stocking-table">
+          <thead><tr><th>River / Water</th><th>Location</th><th>Species</th><th>Size</th><th>Note</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div style="margin-top:16px;" class="chart-wrap">
+        <div class="chart-title">🐟 Stocking by Species</div>
+        <div id="stocking-chart" class="echart-sm"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<footer>
+  Oregon OSINT Fishing Dashboard v4.0 · two dog seeds<br>
+  Data: <a href="https://waterservices.usgs.gov" target="_blank">USGS</a> ·
+  <a href="https://www.ndbc.noaa.gov" target="_blank">NDBC</a> ·
+  <a href="https://tidesandcurrents.noaa.gov" target="_blank">NOAA Tides</a> ·
+  <a href="https://www.weather.gov" target="_blank">NWS</a> ·
+  <a href="https://www.cbr.washington.edu/dart/" target="_blank">DART</a> ·
+  <a href="https://myodfw.com" target="_blank">ODFW</a><br>
+  ⚠️ Always verify regulations and conditions with ODFW before fishing.
+</footer>
+
+<script>
+'use strict';
+
+// ── State ──
+let riverData = [];
+let passageData = {};
+let calendarData = {};
+let weatherData = {};
+let coastalData = {};
+let hatcheryData = {};
+let map = null;
+let flowChart = null, tempChart = null, passageChart = null, weatherChart = null, buoyChart = null;
+let regionChart = null, tenkaraPie = null, tempDistChart = null, stockingChart = null;
+
+const CONDITION_COLORS = {
+  good:    '#00ff87',
+  fair:    '#ffd60a',
+  caution: '#ff9f43',
+  poor:    '#ff4757',
+  unknown: '#3d6480',
+};
+
+// ── Tab nav ──
+function showTab(name) {
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const section = document.getElementById('tab-' + name);
+  if (section) {
+    section.classList.add('active');
+    section.classList.remove('fade-in');
+    void section.offsetWidth;
+    section.classList.add('fade-in');
+  }
+  event.currentTarget.classList.add('active');
+
+  // Lazy renders
+  if (name === 'map' && map) { setTimeout(() => map.invalidateSize(), 50); }
+  if (name === 'rivers' && riverData.length) renderRiverCharts();
+  if (name === 'temps' && riverData.length) renderTempChart();
+  if (name === 'passage' && Object.keys(passageData).length) renderPassageCharts();
+  if (name === 'coastal' && Object.keys(coastalData).length) renderBuoyChart();
+  if (name === 'weather' && Object.keys(weatherData).length) renderWeatherChart();
+}
+
+// ── Fetch helpers ──
+async function apiFetch(endpoint) {
+  const r = await fetch(endpoint);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+// ── Load all data ──
+async function loadAll() {
+  await Promise.allSettled([
+    loadFlows(),
+    loadPassage(),
+    loadWeather(),
+    loadCoastal(),
+    loadHatcheries(),
+  ]);
+}
+
+async function loadFlows() {
+  try {
+    const data = await apiFetch('/api/flows');
+    if (data.error) return;
+    riverData = Array.isArray(data) ? data : [];
+    renderStatsBar();
+    renderMap();
+    renderRiverCards();
+    populateRegionFilter();
+    if (document.getElementById('tab-rivers').classList.contains('active')) renderRiverCharts();
+    if (document.getElementById('tab-temps').classList.contains('active')) renderTempChart();
+  } catch(e) { console.error('flows:', e); }
+}
+
+async function loadPassage() {
+  try {
+    const data = await apiFetch('/api/passage');
+    passageData = data.passage || {};
+    calendarData = data.calendar || {};
+    renderPassageHero();
+    if (document.getElementById('tab-passage').classList.contains('active')) renderPassageCharts();
+    renderCalendar();
+  } catch(e) { console.error('passage:', e); }
+}
+
+async function loadWeather() {
+  try {
+    weatherData = await apiFetch('/api/weather');
+    renderWeatherCards();
+    if (document.getElementById('tab-weather').classList.contains('active')) renderWeatherChart();
+  } catch(e) { console.error('weather:', e); }
+}
+
+async function loadCoastal() {
+  try {
+    coastalData = await apiFetch('/api/coastal');
+    renderBuoyCards();
+    renderTideCards();
+    if (document.getElementById('tab-coastal').classList.contains('active')) renderBuoyChart();
+  } catch(e) { console.error('coastal:', e); }
+}
+
+async function loadHatcheries() {
+  try {
+    hatcheryData = await apiFetch('/api/hatcheries');
+    renderHatcheries();
+    await loadStocking();
+  } catch(e) { console.error('hatcheries:', e); }
+}
+
+async function loadStocking() {
+  try {
+    const flows = await apiFetch('/api/flows');
+    const stocking = riverData.filter(r => r.is_stocked);
+    // Use flows endpoint already cached; show seasonal data from hatcheries endpoint
+  } catch(e) {}
+}
+
+async function refreshAll() {
+  const btn = document.getElementById('refresh-btn');
+  btn.classList.add('spinning');
+  try {
+    await fetch('/api/refresh', { method: 'POST' });
+    await loadAll();
+  } finally {
+    btn.classList.remove('spinning');
+  }
+}
+
+// ── Stats bar ──
+function renderStatsBar() {
+  const good = riverData.filter(r => r.condition.status === 'good').length;
+  const tenkara = riverData.filter(r => r.tenkara_score === 'Excellent').length;
+  const stocked = riverData.filter(r => r.is_stocked).length;
+  const withTemp = riverData.filter(r => r.temp_f != null).length;
+  document.getElementById('stats-bar').innerHTML = `
+    <div class="stat-pill green"><span class="label">Fishable</span><span class="value">${good}</span></div>
+    <div class="stat-pill"><span class="label">Rivers</span><span class="value">${riverData.length}</span></div>
+    <div class="stat-pill"><span class="label">Tenkara ✓</span><span class="value">${tenkara}</span></div>
+    <div class="stat-pill orange"><span class="label">Stocked</span><span class="value">${stocked}</span></div>
+    <div class="stat-pill"><span class="label">Temps</span><span class="value">${withTemp}</span></div>
+  `;
+}
+
+// ── MAP ──
+function renderMap() {
+  if (!map) {
+    map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([44.2, -121.0], 7);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© CartoDB', subdomains: 'abcd', maxZoom: 19,
+    }).addTo(map);
+  } else {
+    map.eachLayer(l => { if (l instanceof L.CircleMarker || l instanceof L.Marker) map.removeLayer(l); });
+  }
+
+  riverData.forEach(river => {
+    const color = CONDITION_COLORS[river.condition.status] || '#3d6480';
+    const radius = river.condition.status === 'good' ? 10 : 8;
+    const cfsStr = river.cfs != null ? `${Math.round(river.cfs).toLocaleString()} CFS` : 'No data';
+    const tempStr = river.temp_f != null ? `<br>🌡️ ${river.temp_f.toFixed(1)}°F` : '';
+    const stageStr = river.stage_ft != null ? `<br>📏 Stage: ${river.stage_ft.toFixed(2)} ft` : '';
+    const species = (river.species || []).slice(0, 3).join(', ');
+    const gear = (river.gear || []).slice(0, 2).join(', ');
+    const popup = `
+      <div style="font-family:Inter,sans-serif;min-width:200px;background:#0d1e36;color:#dceeff;padding:4px;">
+        <div style="font-size:14px;font-weight:700;">${river.river}</div>
+        <div style="font-size:10px;color:#7da8cc;margin-bottom:8px;">${river.region}</div>
+        <div style="font-size:20px;font-weight:800;color:${color};font-family:monospace;">${cfsStr}</div>
+        <div style="font-size:11px;color:#aac;">${river.condition.label}${tempStr}${stageStr}</div>
+        ${river.tenkara_score === 'Excellent' ? '<div style="font-size:11px;color:#a55eea;margin-top:4px;">🎣 Tenkara Excellent</div>' : ''}
+        ${river.is_stocked ? '<div style="font-size:11px;color:#00ff87;margin-top:2px;">🐟 Recently Stocked</div>' : ''}
+        <div style="font-size:11px;color:#7da8cc;margin-top:6px;border-top:1px solid #1e3a5f;padding-top:6px;">
+          🐟 ${species}<br>🎣 ${gear}
+        </div>
+        <div style="font-size:10px;color:#e67e22;margin-top:4px;">⚖️ ${(river.regulations||'').substring(0,70)}</div>
+      </div>`;
+
+    L.circleMarker([river.lat, river.lon], {
+      radius, color, fillColor: color, fillOpacity: 0.85, weight: 2,
+    }).bindPopup(popup, { maxWidth: 260 })
+      .bindTooltip(`${river.river} — ${river.condition.emoji || ''} ${cfsStr}`, { sticky: true })
+      .addTo(map);
+  });
+}
+
+// ── River Cards ──
+let filteredRivers = [];
+function populateRegionFilter() {
+  const sel = document.getElementById('region-filter');
+  const regions = [...new Set(riverData.map(r => r.region))].sort();
+  sel.innerHTML = '<option value="">All Regions</option>' +
+    regions.map(r => `<option value="${r}">${r}</option>`).join('');
+}
+
+function filterRivers() {
+  const search = document.getElementById('river-search').value.toLowerCase();
+  const region = document.getElementById('region-filter').value;
+  const status = document.getElementById('status-filter').value;
+  const tenkaraOnly = document.getElementById('tenkara-only').checked;
+
+  filteredRivers = riverData.filter(r => {
+    if (search && !r.river.toLowerCase().includes(search)) return false;
+    if (region && r.region !== region) return false;
+    if (status && r.condition.status !== status) return false;
+    if (tenkaraOnly && r.tenkara_score !== 'Excellent' && r.tenkara_score !== 'Fishable') return false;
+    return true;
+  });
+  renderRiverCards(filteredRivers);
+  renderRiverCharts(filteredRivers);
+}
+
+function renderRiverCards(data) {
+  const list = data || riverData;
+  const container = document.getElementById('river-cards');
+  container.innerHTML = list.map(r => {
+    const status = r.condition.status;
+    const cfsStr = r.cfs != null ? `${Math.round(r.cfs).toLocaleString()}` : '—';
+    const unit = r.cfs != null ? ' CFS' : '';
+    const tempStr = r.temp_f != null ? `${r.temp_f.toFixed(1)}°F` : null;
+    const pills = [
+      tempStr ? `<span class="pill temp">🌡️ ${tempStr}</span>` : '',
+      r.is_stocked ? '<span class="pill stocked">🐟 Stocked</span>' : '',
+      r.tenkara_score === 'Excellent' ? '<span class="pill tenkara">🎣 Tenkara ✓</span>' : '',
+      ...(r.species || []).slice(0, 2).map(s => `<span class="pill species">${s}</span>`),
+    ].filter(Boolean).join('');
+    return `<div class="card ${status}">
+      <div class="card-river">${r.river}</div>
+      <div class="card-region">${r.region}</div>
+      <div class="card-cfs ${status}">${cfsStr}<span style="font-size:12px;font-weight:400;">${unit}</span></div>
+      <div class="card-label">${r.condition.emoji || ''} ${r.condition.label}</div>
+      ${r.stage_ft != null ? `<div style="font-size:11px;color:var(--text2)">📏 Stage: ${r.stage_ft.toFixed(2)} ft</div>` : ''}
+      <div class="card-pills">${pills}</div>
+      <div class="card-meta">🎣 ${(r.gear || []).slice(0,2).join(', ')}<br>${r.season_note ? r.season_note.substring(0,60)+'…' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── River Charts (ECharts) ──
+function renderRiverCharts(data) {
+  const list = data || riverData;
+  renderFlowChart(list);
+  renderRegionChart(list);
+  renderTenkaraPie(list);
+}
+
+function renderFlowChart(list) {
+  if (!document.getElementById('flow-chart')) return;
+  if (!flowChart) flowChart = echarts.init(document.getElementById('flow-chart'), null, { renderer: 'canvas' });
+
+  const sorted = [...list].filter(r => r.cfs != null).sort((a, b) => b.cfs - a.cfs);
+  const names = sorted.map(r => r.river);
+  const values = sorted.map(r => Math.round(r.cfs));
+  const colors = sorted.map(r => CONDITION_COLORS[r.condition.status] || '#3d6480');
+
+  // Good-range markers
+  const markData = sorted.map((r, i) => {
+    // We can't easily get typical_ranges here; color is enough
+    return null;
+  }).filter(Boolean);
+
+  flowChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: '#0d1e36',
+      borderColor: 'rgba(0,180,255,.3)',
+      textStyle: { color: '#dceeff', fontSize: 12 },
+      formatter: params => {
+        const r = sorted[params[0].dataIndex];
+        return `<b style="color:#dceeff">${r.river}</b><br>
+          <span style="color:${colors[params[0].dataIndex]}">${params[0].value.toLocaleString()} CFS</span><br>
+          <span style="color:#7da8cc">${r.condition.label}</span>
+          ${r.temp_f ? `<br>🌡️ ${r.temp_f.toFixed(1)}°F` : ''}
+          ${r.is_stocked ? '<br>🐟 Stocked' : ''}`;
+      },
+    },
+    grid: { left: '2%', right: '5%', bottom: '2%', top: '2%', containLabel: true },
+    xAxis: {
+      type: 'value',
+      axisLabel: { color: '#7da8cc', fontSize: 10, formatter: v => v >= 1000 ? (v/1000).toFixed(0)+'k' : v },
+      splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } },
+      axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } },
+    },
+    yAxis: {
+      type: 'category',
+      data: names,
+      axisLabel: { color: '#dceeff', fontSize: 10, width: 160, overflow: 'truncate' },
+      axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } },
+    },
+    series: [{
+      type: 'bar',
+      data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [0, 4, 4, 0] } })),
+      barMaxWidth: 18,
+      label: {
+        show: true, position: 'right', color: '#7da8cc', fontSize: 9,
+        formatter: p => p.value >= 1000 ? (p.value/1000).toFixed(1)+'k' : p.value,
+      },
+    }],
+  });
+  document.getElementById('flow-chart').style.minHeight = Math.max(320, names.length * 22) + 'px';
+  flowChart.resize();
+}
+
+function renderRegionChart(list) {
+  if (!document.getElementById('region-chart')) return;
+  if (!regionChart) regionChart = echarts.init(document.getElementById('region-chart'), null, { renderer: 'canvas' });
+
+  const regions = {};
+  list.forEach(r => {
+    const reg = r.region;
+    if (!regions[reg]) regions[reg] = { good: 0, fair: 0, caution: 0, poor: 0, unknown: 0 };
+    const s = r.condition.status;
+    if (regions[reg][s] !== undefined) regions[reg][s]++;
+    else regions[reg].unknown++;
+  });
+
+  const names = Object.keys(regions);
+  const goodVals = names.map(n => regions[n].good);
+  const fairVals = names.map(n => regions[n].fair);
+  const cautionVals = names.map(n => regions[n].caution);
+  const poorVals = names.map(n => regions[n].poor + regions[n].unknown);
+
+  regionChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' } },
+    legend: { data: ['Good', 'Fair', 'High/Caution', 'Poor/No Data'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
+    grid: { left: '2%', right: '4%', bottom: '10%', top: '30px', containLabel: true },
+    xAxis: { type: 'category', data: names, axisLabel: { color: '#7da8cc', fontSize: 9, rotate: 25, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
+    yAxis: { type: 'value', axisLabel: { color: '#7da8cc', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } } },
+    series: [
+      { name: 'Good', type: 'bar', stack: 'total', data: goodVals, itemStyle: { color: '#00ff87' } },
+      { name: 'Fair', type: 'bar', stack: 'total', data: fairVals, itemStyle: { color: '#ffd60a' } },
+      { name: 'High/Caution', type: 'bar', stack: 'total', data: cautionVals, itemStyle: { color: '#ff9f43' } },
+      { name: 'Poor/No Data', type: 'bar', stack: 'total', data: poorVals, itemStyle: { color: '#3d6480' } },
+    ],
+  });
+}
+
+function renderTenkaraPie(list) {
+  if (!document.getElementById('tenkara-pie')) return;
+  if (!tenkaraPie) tenkaraPie = echarts.init(document.getElementById('tenkara-pie'), null, { renderer: 'canvas' });
+
+  const counts = { Excellent: 0, Fishable: 0, 'Too High': 0, 'Too Low': 0, 'Not Recommended': 0, Unknown: 0 };
+  list.forEach(r => {
+    if (counts[r.tenkara_score] !== undefined) counts[r.tenkara_score]++;
+    else counts.Unknown++;
+  });
+
+  tenkaraPie.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'item', backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' } },
+    legend: { orient: 'vertical', right: 10, textStyle: { color: '#7da8cc', fontSize: 10 } },
+    series: [{
+      type: 'pie', radius: ['40%', '70%'], center: ['40%', '50%'],
+      data: [
+        { value: counts.Excellent, name: 'Excellent', itemStyle: { color: '#00ff87' } },
+        { value: counts.Fishable, name: 'Fishable', itemStyle: { color: '#ffd60a' } },
+        { value: counts['Too High'], name: 'Too High', itemStyle: { color: '#ff4757' } },
+        { value: counts['Too Low'], name: 'Too Low', itemStyle: { color: '#a55eea' } },
+        { value: counts['Not Recommended'] + counts.Unknown, name: 'N/A', itemStyle: { color: '#3d6480' } },
+      ].filter(d => d.value > 0),
+      label: { color: '#dceeff', fontSize: 10 },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,.5)' } },
+    }],
+  });
+}
+
+// ── Temperature Chart ──
+function renderTempChart() {
+  if (!document.getElementById('temp-chart')) return;
+  if (!tempChart) tempChart = echarts.init(document.getElementById('temp-chart'), null, { renderer: 'canvas' });
+  if (!tempDistChart) tempDistChart = echarts.init(document.getElementById('temp-dist-chart'), null, { renderer: 'canvas' });
+
+  const withTemp = riverData.filter(r => r.temp_f != null).sort((a, b) => a.temp_f - b.temp_f);
+  if (!withTemp.length) {
+    tempChart.setOption({ title: { text: 'No temperature data available', textStyle: { color: '#7da8cc' } }, backgroundColor: 'transparent' });
+    return;
+  }
+
+  const names = withTemp.map(r => r.river);
+  const temps = withTemp.map(r => r.temp_f);
+  const colors = withTemp.map(r => {
+    const t = r.temp_f;
+    if (t < 45) return '#4fc3f7';
+    if (t < 50) return '#ffd60a';
+    if (t <= 68) return '#00ff87';
+    if (t <= 72) return '#ff9f43';
+    return '#ff4757';
+  });
+
+  tempChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' },
+      formatter: p => `<b>${withTemp[p[0].dataIndex].river}</b><br>🌡️ ${p[0].value}°F<br>${withTemp[p[0].dataIndex].temp_condition.label}`,
+    },
+    grid: { left: '2%', right: '4%', bottom: '12%', top: '8%', containLabel: true },
+    xAxis: { type: 'category', data: names, axisLabel: { color: '#7da8cc', fontSize: 9, rotate: 40, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
+    yAxis: {
+      type: 'value', name: '°F', nameTextStyle: { color: '#7da8cc' },
+      axisLabel: { color: '#7da8cc', formatter: '{value}°F' },
+      splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } },
+      min: v => Math.floor(v.min - 5),
+    },
+    series: [
+      {
+        type: 'bar', data: temps.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [4, 4, 0, 0] } })),
+        barMaxWidth: 20,
+        label: { show: true, position: 'top', color: '#dceeff', fontSize: 9, formatter: p => p.value.toFixed(1) + '°' },
+      },
+      {
+        type: 'line', data: new Array(names.length).fill(50), lineStyle: { color: '#00ff87', type: 'dashed', width: 1 },
+        symbol: 'none', z: 10, name: 'Ideal Min (50°F)',
+      },
+      {
+        type: 'line', data: new Array(names.length).fill(68), lineStyle: { color: '#ff9f43', type: 'dashed', width: 1 },
+        symbol: 'none', z: 10, name: 'Ideal Max (68°F)',
+      },
+    ],
+    legend: { data: ['Ideal Min (50°F)', 'Ideal Max (68°F)'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
+  });
+
+  // Distribution chart
+  const bins = { 'Cold (<45°F)': 0, 'Cool (45–50°F)': 0, 'Ideal (50–68°F)': 0, 'Warm (68–72°F)': 0, 'Hot (>72°F)': 0 };
+  withTemp.forEach(r => {
+    const t = r.temp_f;
+    if (t < 45) bins['Cold (<45°F)']++;
+    else if (t < 50) bins['Cool (45–50°F)']++;
+    else if (t <= 68) bins['Ideal (50–68°F)']++;
+    else if (t <= 72) bins['Warm (68–72°F)']++;
+    else bins['Hot (>72°F)']++;
+  });
+
+  tempDistChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'item', backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' } },
+    series: [{
+      type: 'pie', radius: ['35%', '65%'], center: ['50%', '55%'],
+      data: [
+        { value: bins['Cold (<45°F)'], name: 'Cold (<45°F)', itemStyle: { color: '#4fc3f7' } },
+        { value: bins['Cool (45–50°F)'], name: 'Cool (45–50°F)', itemStyle: { color: '#ffd60a' } },
+        { value: bins['Ideal (50–68°F)'], name: 'Ideal (50–68°F)', itemStyle: { color: '#00ff87' } },
+        { value: bins['Warm (68–72°F)'], name: 'Warm (68–72°F)', itemStyle: { color: '#ff9f43' } },
+        { value: bins['Hot (>72°F)'], name: 'Hot (>72°F)', itemStyle: { color: '#ff4757' } },
+      ].filter(d => d.value > 0),
+      label: { color: '#dceeff', fontSize: 10 },
+    }],
+  });
+}
+
+// ── Fish Passage ──
+function renderPassageHero() {
+  const container = document.getElementById('passage-hero');
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const icons = { Chinook:'🐟', Coho:'🐠', Steelhead:'🎣', Sockeye:'🔴', Shad:'🐡', Lamprey:'🐍', 'Spring Chinook':'🐟', 'Fall Chinook':'🐟', 'Summer Steelhead':'🎣', 'Winter Steelhead':'🎣', 'Bull Trout':'🧊' };
+
+  container.innerHTML = Object.entries(passageData).map(([species, data]) => {
+    const icon = icons[species] || '🐟';
+    const recent = data.recent || 0;
+    const avg = data.avg_7d || 0;
+    const delta = recent - avg;
+    const pct = avg > 0 ? Math.abs(delta / avg * 100).toFixed(0) : 0;
+    return `<div class="passage-card fade-in">
+      <div style="font-size:24px;margin-bottom:4px;">${icon}</div>
+      <div class="passage-species">${species}</div>
+      <div class="passage-count">${recent.toLocaleString()}</div>
+      <div class="passage-unit">fish / day</div>
+      <div class="passage-delta ${delta >= 0 ? 'up' : 'down'}">
+        ${delta >= 0 ? '▲' : '▼'} ${pct}% vs 7-day avg
+      </div>
+      ${data.note ? `<div style="font-size:10px;color:var(--text3);margin-top:6px;">${data.note}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderPassageCharts() {
+  if (!document.getElementById('passage-chart')) return;
+  if (!passageChart) passageChart = echarts.init(document.getElementById('passage-chart'), null, { renderer: 'canvas' });
+
+  const species = Object.keys(passageData);
+  const recents = species.map(s => passageData[s].recent || 0);
+  const avgs = species.map(s => passageData[s].avg_7d || 0);
+
+  const speciesColors = {
+    Chinook: '#ffd60a', 'Spring Chinook': '#ffd60a', 'Fall Chinook': '#ff9f43',
+    Coho: '#00d4ff', Steelhead: '#00ff87', 'Summer Steelhead': '#00ff87', 'Winter Steelhead': '#4fc3f7',
+    Sockeye: '#ff4757', Shad: '#a55eea', 'Bull Trout': '#00aacc', Lamprey: '#3d6480',
+  };
+
+  passageChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' } },
+    legend: { data: ['Today', '7-Day Avg'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
+    grid: { left: '2%', right: '4%', bottom: '12%', top: '30px', containLabel: true },
+    xAxis: { type: 'category', data: species, axisLabel: { color: '#dceeff', fontSize: 10, rotate: 20, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
+    yAxis: {
+      type: 'value', axisLabel: { color: '#7da8cc', fontSize: 10, formatter: v => v >= 1000 ? (v/1000).toFixed(0)+'k' : v },
+      splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } },
+    },
+    series: [
+      {
+        name: 'Today', type: 'bar', data: recents.map((v, i) => ({
+          value: v, itemStyle: { color: speciesColors[species[i]] || '#00d4ff', borderRadius: [4, 4, 0, 0] },
+        })), barGap: '10%',
+        label: { show: true, position: 'top', color: '#dceeff', fontSize: 9, formatter: p => p.value >= 1000 ? (p.value/1000).toFixed(1)+'k' : p.value },
+      },
+      {
+        name: '7-Day Avg', type: 'bar', data: avgs.map((v, i) => ({
+          value: v, itemStyle: { color: (speciesColors[species[i]] || '#00d4ff') + '55', borderRadius: [4, 4, 0, 0] },
+        })),
+      },
+    ],
+  });
+}
+
+// ── Run Timing Calendar ──
+function renderCalendar() {
+  const container = document.getElementById('calendar-wrap');
+  if (!container || !Object.keys(calendarData).length) return;
+
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const currentMonth = new Date().getMonth() + 1;
+
+  const rows = Object.entries(calendarData).map(([run, data]) => {
+    const peakSet = new Set(data.peak_months || []);
+    const cells = months.map((m, i) => {
+      const mo = i + 1;
+      const isPeak = peakSet.has(mo);
+      const isCurrent = isPeak && mo === currentMonth;
+      const cls = isCurrent ? 'current-peak' : isPeak ? 'peak' : '';
+      return `<td class="${cls}">${isPeak ? (isCurrent ? '▶' : '●') : '·'}</td>`;
+    }).join('');
+    const rivers = (data.rivers || []).slice(0, 3).join(', ');
+    return `<tr>
+      <td class="species-name">${data.icon || ''} ${run}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `<table class="calendar-table">
+    <thead>
+      <tr>
+        <th>Run</th>
+        ${months.map((m, i) => `<th style="${i+1===currentMonth?'color:var(--green);background:rgba(0,255,135,.08)':''}">${m}</th>`).join('')}
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div style="font-size:10px;color:var(--text3);margin-top:6px;">
+    ▶ = Active now · ● = Peak month · · = Off season
+    <a href="https://www.cbr.washington.edu/dart/query/adult_annual" target="_blank" style="color:var(--cyan);margin-left:8px;">DART Full Data →</a>
+  </div>`;
+}
+
+// ── Coastal ──
+function renderBuoyCards() {
+  const container = document.getElementById('buoy-cards');
+  const buoys = coastalData.buoys || {};
+  container.innerHTML = Object.entries(buoys).map(([name, b]) => {
+    if (b.error) return `<div class="buoy-card" style="margin-bottom:12px;opacity:.6;"><div class="buoy-name">📡 ${name}</div><div style="color:var(--red);font-size:11px;">⚠️ ${b.error}</div></div>`;
+    const impact = b.fishing_impact || {};
+    const sst = b.sst_f != null ? `${b.sst_f.toFixed(1)}°F` : 'SST N/A';
+    const waves = b.wave_height_ft != null ? `${b.wave_height_ft.toFixed(1)} ft` : 'N/A';
+    const period = b.dominant_period_s != null ? ` / ${b.dominant_period_s.toFixed(0)}s` : '';
+    const wind = b.wind_speed_kts != null ? `${b.wind_speed_kts.toFixed(0)} kts ${b.wind_dir_str || ''}` : 'calm';
+    const pres = b.pressure_hpa != null ? `${b.pressure_hpa.toFixed(1)} hPa` : '';
+    return `<div class="buoy-card" style="margin-bottom:12px;">
+      <div class="buoy-name">📡 ${name}</div>
+      <div class="buoy-desc">${b.desc || ''}</div>
+      <div class="buoy-sst">🌡️ ${sst}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:6px;">🌊 Waves: <b>${waves}${period}</b></div>
+      <div style="font-size:12px;color:var(--text2);">💨 Wind: <b>${wind}</b></div>
+      ${pres ? `<div style="font-size:11px;color:var(--text3);">🌬️ Pressure: ${pres}</div>` : ''}
+      <div style="font-size:11px;margin-top:8px;border-top:1px solid rgba(0,180,255,.1);padding-top:8px;">
+        <span style="color:${impact.color || '#888'};font-weight:700;">${impact.label || 'Unknown'}</span><br>
+        <span style="font-size:10px;color:var(--text3);">${impact.notes || ''}</span>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">⏱️ ${b.obs_time || ''}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderTideCards() {
+  const container = document.getElementById('tide-cards');
+  const tides = coastalData.tides || {};
+  container.innerHTML = Object.entries(tides).map(([name, t]) => {
+    if (t.error) return `<div class="tide-card" style="margin-bottom:12px;opacity:.6;"><div class="tide-name">🌊 ${name}</div><div style="color:var(--red);font-size:11px;">⚠️ ${t.error}</div></div>`;
+    const wl = t.water_level_ft != null ? t.water_level_ft.toFixed(2) + ' ft' : 'N/A';
+    const trendColor = t.trend === 'Rising' ? '#4fc3f7' : t.trend === 'Falling' ? '#ff9f43' : '#7da8cc';
+    const trendArrow = t.trend === 'Rising' ? '⬆' : t.trend === 'Falling' ? '⬇' : '→';
+    const events = (t.next_tide_events || []).map(e =>
+      `<div class="tide-event">${e.type === 'High' ? '🌊' : '🏖️'} <b>${e.type}</b> ${e.time} — ${e.level.toFixed(1)} ft</div>`
+    ).join('');
+    return `<div class="tide-card" style="margin-bottom:12px;">
+      <div class="tide-name">🌊 ${name}</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px;">${t.desc || ''}</div>
+      <div class="tide-level" style="color:${trendColor};">${wl}</div>
+      <div class="tide-row" style="color:${trendColor};">${trendArrow} ${t.trend || 'Stable'}</div>
+      ${events ? `<div class="tide-events"><div style="font-size:10px;color:var(--text3);margin-bottom:2px;">Next tides:</div>${events}</div>` : ''}
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">Obs: ${(t.obs_time||'').substring(0,16)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderBuoyChart() {
+  if (!document.getElementById('buoy-chart')) return;
+  if (!buoyChart) buoyChart = echarts.init(document.getElementById('buoy-chart'), null, { renderer: 'canvas' });
+
+  const buoys = coastalData.buoys || {};
+  const names = Object.keys(buoys).filter(n => !buoys[n].error);
+  if (!names.length) return;
+
+  const waveData = names.map(n => buoys[n].wave_height_ft || 0);
+  const sstData = names.map(n => buoys[n].sst_f || 0);
+  const windData = names.map(n => buoys[n].wind_speed_kts || 0);
+
+  buoyChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' } },
+    legend: { data: ['Wave Height (ft)', 'SST (°F)', 'Wind (kts)'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
+    grid: { left: '2%', right: '4%', bottom: '10%', top: '30px', containLabel: true },
+    xAxis: { type: 'category', data: names, axisLabel: { color: '#dceeff', fontSize: 10 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
+    yAxis: { type: 'value', axisLabel: { color: '#7da8cc', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } } },
+    series: [
+      { name: 'Wave Height (ft)', type: 'bar', data: waveData, itemStyle: { color: '#00d4ff', borderRadius: [4,4,0,0] }, barMaxWidth: 30 },
+      { name: 'SST (°F)', type: 'line', data: sstData, lineStyle: { color: '#ff9f43', width: 2 }, symbol: 'circle', symbolSize: 8, itemStyle: { color: '#ff9f43' } },
+      { name: 'Wind (kts)', type: 'line', data: windData, lineStyle: { color: '#a55eea', width: 2 }, symbol: 'circle', symbolSize: 8, itemStyle: { color: '#a55eea' } },
+    ],
+  });
+}
+
+// ── Weather ──
+function renderWeatherCards() {
+  const container = document.getElementById('weather-cards');
+  container.innerHTML = Object.entries(weatherData).map(([zone, w]) => {
+    if (w.error) return `<div class="weather-card" style="opacity:.6;"><div class="weather-zone">${zone}</div><div style="color:var(--red);font-size:11px;">⚠️ ${w.error}</div></div>`;
+    const score = w.fishing_score || 0;
+    const label = (w.fishing_label || {});
+    const color = label.color || '#7da8cc';
+    return `<div class="weather-card">
+      <div class="weather-zone">${zone}</div>
+      <div class="weather-temp" style="color:${score >= 70 ? '#00ff87' : score >= 50 ? '#ffd60a' : '#ff4757'};">${w.temp_f || '?'}°F</div>
+      <div class="weather-desc">${w.short_forecast || ''}  |  💨 ${w.wind_speed || '?'} ${w.wind_dir || ''}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+        <span class="score-badge" style="background:${color}22;color:${color};">${label.label || '?'}</span>
+        <span style="font-size:11px;color:var(--text2);">Score: ${score}/100</span>
+      </div>
+      <div class="weather-score-bar"><div class="weather-score-fill" style="width:${score}%;background:${color};"></div></div>
+      <div style="font-size:11px;color:var(--text2);margin-top:6px;">🌧️ Precip chance: ${w.precip_chance || 0}%</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">📍 ${(w.rivers || []).slice(0,2).join(', ')}</div>
+      <div class="weather-meta">Updated: ${w.updated || ''}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderWeatherChart() {
+  if (!document.getElementById('weather-chart')) return;
+  if (!weatherChart) weatherChart = echarts.init(document.getElementById('weather-chart'), null, { renderer: 'canvas' });
+
+  const entries = Object.entries(weatherData).filter(([_, w]) => !w.error && w.fishing_score != null);
+  const zones = entries.map(([z]) => z.replace(' (', '\n('));
+  const scores = entries.map(([_, w]) => w.fishing_score);
+  const colors = scores.map(s => s >= 80 ? '#00ff87' : s >= 60 ? '#ffd60a' : s >= 40 ? '#ff9f43' : '#ff4757');
+
+  weatherChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis', backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' },
+      formatter: p => {
+        const w = entries[p[0].dataIndex][1];
+        return `<b>${entries[p[0].dataIndex][0]}</b><br>Score: ${p[0].value}/100<br>${w.temp_f}°F · ${w.short_forecast}`;
+      },
+    },
+    grid: { left: '2%', right: '4%', bottom: '18%', top: '4%', containLabel: true },
+    xAxis: { type: 'category', data: zones, axisLabel: { color: '#dceeff', fontSize: 9, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
+    yAxis: { type: 'value', max: 100, axisLabel: { color: '#7da8cc' }, splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } } },
+    series: [{
+      type: 'bar',
+      data: scores.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [4,4,0,0] } })),
+      barMaxWidth: 40,
+      label: { show: true, position: 'top', color: '#dceeff', fontSize: 10, formatter: p => p.value + '%' },
+    }],
+  });
+}
+
+// ── Hatcheries ──
+function renderHatcheries() {
+  const container = document.getElementById('hatchery-list');
+  const hatcheries = (hatcheryData.hatcheries || []).slice(0, 24);
+  container.innerHTML = hatcheries.map(h => `
+    <div class="hatchery-card">
+      <div class="hatchery-name">🏭 ${h.name}</div>
+      <div class="hatchery-river">📍 ${h.river_system} · ${h.region}</div>
+      <div class="hatchery-species">🐟 ${(h.species || []).join(', ')}</div>
+      <div class="hatchery-note">${(h.notes || '').substring(0, 80)}${(h.notes||'').length > 80 ? '…' : ''}</div>
+    </div>`).join('');
+
+  // Stocking schedule from river data
+  const stocked = riverData.filter(r => r.is_stocked);
+  renderStockingTable(stocked);
+  renderStockingChart(hatcheries);
+}
+
+function renderStockingTable(stocked) {
+  const tbody = document.querySelector('#stocking-table tbody');
+  if (!tbody) return;
+  tbody.innerHTML = stocked.map(r =>
+    `<tr><td>${r.river}</td><td>${r.region}</td><td>${(r.species||[]).slice(0,2).join(', ')}</td><td>—</td><td>Recently active stocking</td></tr>`
+  ).join('') || '<tr><td colspan="5" style="color:var(--text3);text-align:center;padding:20px;">Loading seasonal stocking data…</td></tr>';
+}
+
+function renderStockingChart(hatcheries) {
+  if (!document.getElementById('stocking-chart')) return;
+  if (!stockingChart) stockingChart = echarts.init(document.getElementById('stocking-chart'), null, { renderer: 'canvas' });
+
+  const speciesCount = {};
+  hatcheries.forEach(h => {
+    (h.species || []).forEach(s => { speciesCount[s] = (speciesCount[s] || 0) + 1; });
+  });
+
+  const sorted = Object.entries(speciesCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  stockingChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'item', backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' } },
+    grid: { left: '2%', right: '5%', bottom: '2%', top: '2%', containLabel: true },
+    xAxis: { type: 'value', axisLabel: { color: '#7da8cc', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } } },
+    yAxis: { type: 'category', data: sorted.map(s => s[0]), axisLabel: { color: '#dceeff', fontSize: 10 } },
+    series: [{
+      type: 'bar', data: sorted.map(([, v], i) => ({
+        value: v,
+        itemStyle: { color: ['#00ff87','#00d4ff','#ffd60a','#ff9f43','#ff4757','#a55eea','#4fc3f7','#26c6da','#80cbc4','#b0bec5'][i % 10], borderRadius: [0,4,4,0] },
+      })),
+      barMaxWidth: 16,
+      label: { show: true, position: 'right', color: '#dceeff', fontSize: 9 },
+    }],
+  });
+}
+
+// ── Window resize ──
+window.addEventListener('resize', () => {
+  [flowChart, tempChart, passageChart, weatherChart, buoyChart, regionChart, tenkaraPie, tempDistChart, stockingChart]
+    .filter(Boolean).forEach(c => c.resize());
+  if (map) map.invalidateSize();
+});
+
+// ── Boot ──
+document.addEventListener('DOMContentLoaded', () => {
+  loadAll();
+});
+</script>
+</body>
+</html>

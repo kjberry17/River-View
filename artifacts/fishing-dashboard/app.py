@@ -1,237 +1,113 @@
-import streamlit as st
-import json
-from datetime import datetime
+import os
+import logging
+from flask import Flask, jsonify, send_from_directory
+from flask_cors import CORS
 
-st.set_page_config(
-    page_title="Oregon OSINT Fishing Dashboard",
-    page_icon="🎣",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
-import database as db
-import ai_buddy
-from map_view import render_map_tab
-from live_data_tab import render_live_data_tab
-from wiki_tab import render_wiki_tab
-from web_search_tab import render_web_search_tab
-from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking
+app = Flask(__name__, static_folder="static")
+CORS(app)
+
+BASE = os.path.dirname(__file__)
 
 
-def init_session():
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "pending_wiki_proposals" not in st.session_state:
-        st.session_state.pending_wiki_proposals = []
-    if "model_key" not in st.session_state:
-        st.session_state.model_key = "Auto — Free (Llama 3.1)"
-    if "db_initialized" not in st.session_state:
-        try:
-            db.init_db()
-            st.session_state.db_initialized = True
-        except Exception as e:
-            st.session_state.db_initialized = False
-            st.session_state.db_error = str(e)
+@app.route("/_stcore/health")
+def stcore_health():
+    return "ok", 200
 
 
-def _build_live_data() -> dict:
-    flows = fetch_usgs_flows()
-    stocking = fetch_odfw_stocking()
-    live_data = {**flows, "_stocking": stocking}
+@app.route("/_stcore/host-config")
+def stcore_host_config():
+    return jsonify({
+        "allowedOrigins": ["*"],
+        "useExternalAuthToken": False,
+        "enableCustomParentMessages": False,
+        "mapboxToken": "",
+    })
+
+
+@app.route("/")
+def index():
+    return send_from_directory(os.path.join(BASE, "static"), "index.html")
+
+
+@app.route("/api/flows")
+def api_flows():
+    try:
+        from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking, build_river_summary
+        flows = fetch_usgs_flows()
+        stocking = fetch_odfw_stocking()
+        summary = build_river_summary(flows, stocking)
+        return jsonify(summary)
+    except Exception as e:
+        log.error("flows error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/passage")
+def api_passage():
+    try:
+        from fish_passage import fetch_bonneville_passage, get_run_timing_calendar, FISH_ICONS, SPECIES_NOTES
+        passage = fetch_bonneville_passage()
+        calendar = get_run_timing_calendar()
+        return jsonify({"passage": passage, "calendar": calendar, "icons": FISH_ICONS, "notes": SPECIES_NOTES})
+    except Exception as e:
+        log.error("passage error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/weather")
+def api_weather():
     try:
         from weather_fetchers import fetch_nws_weather
-        live_data["_weather"] = fetch_nws_weather()
-    except Exception:
-        pass
+        weather = fetch_nws_weather()
+        return jsonify(weather)
+    except Exception as e:
+        log.error("weather error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/coastal")
+def api_coastal():
     try:
+        from oregon_gov_data import fetch_ndbc_buoys, fetch_noaa_tides
+        buoys = fetch_ndbc_buoys()
+        tides = fetch_noaa_tides()
+        return jsonify({"buoys": buoys, "tides": tides})
+    except Exception as e:
+        log.error("coastal error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/hatcheries")
+def api_hatcheries():
+    try:
+        from hatcheries import OREGON_HATCHERIES, OREGON_LAKES
+        return jsonify({"hatcheries": OREGON_HATCHERIES, "lakes": OREGON_LAKES})
+    except Exception as e:
+        log.error("hatcheries error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/refresh", methods=["POST"])
+def api_refresh():
+    try:
+        from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking
         from fish_passage import fetch_bonneville_passage
-        live_data["_passage"] = fetch_bonneville_passage()
-    except Exception:
-        pass
-    return live_data
-
-
-def render_sidebar():
-    with st.sidebar:
-        st.title("🎣 AI Fishing Buddy")
-        st.caption("Powered by OpenRouter · Llama 3.1 · Your Karpathy Wiki")
-
-        st.session_state.model_key = st.selectbox(
-            "Model",
-            list(ai_buddy.MODELS.keys()),
-            index=0,
-            help="Free models work great. Pro options require OpenRouter credits.",
-        )
-
-        if not ai_buddy.OPENROUTER_API_KEY:
-            st.warning("⚠️ OPENROUTER_API_KEY not set. AI Buddy is disabled.")
-            return
-
-        st.divider()
-        st.markdown("**Chat with The Buddy**")
-        st.caption("Ask anything — where to fish, fly selection, trip planning, log a trip...")
-
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-
-        if st.session_state.pending_wiki_proposals:
-            _render_wiki_proposals()
-
-        user_input = st.chat_input("Where should I fish this weekend?")
-        if user_input:
-            _handle_chat(user_input)
-
-        st.divider()
-
-        with st.expander("💡 Quick Prompts"):
-            quick_prompts = [
-                "Where should I fish today near Bend?",
-                "Best tenkara rivers right now?",
-                "What flies should I bring to the Deschutes?",
-                "Is the McKenzie fishable this week?",
-                "Where are rainbows hitting near Eugene?",
-                "What's the Metolius like right now?",
-                "Log a trip to the Crooked River — 3 fish on kebari #14",
-                "What patterns do you see in my fishing logs?",
-                "Build me a Saturday plan within 2 hours of Bend",
-                "Which rivers are currently stocked?",
-                "What hatcheries are on the Rogue?",
-                "Is there a steelhead run active right now?",
-                "Best lakes for trophy trout in Central Oregon?",
-                "What's the weather like for fishing this weekend?",
-            ]
-            for prompt in quick_prompts:
-                if st.button(prompt, key=f"quick_{hash(prompt)}", width="stretch"):
-                    _handle_chat(prompt)
-
-        if st.button("🗑️ Clear Chat", width="stretch"):
-            st.session_state.messages = []
-            st.session_state.pending_wiki_proposals = []
-            st.rerun()
-
-
-def _handle_chat(user_input: str):
-    st.session_state.messages.append({"role": "user", "content": user_input})
-
-    with st.sidebar:
-        with st.spinner("The Buddy is thinking..."):
-            try:
-                live_data = _build_live_data()
-
-                history = [
-                    {"role": m["role"], "content": m["content"]}
-                    for m in st.session_state.messages[:-1]
-                ]
-
-                response, proposals = ai_buddy.chat_with_buddy(
-                    user_input,
-                    history,
-                    live_data,
-                    db,
-                    st.session_state.model_key,
-                )
-                st.session_state.messages.append({"role": "assistant", "content": response})
-
-                if proposals:
-                    st.session_state.pending_wiki_proposals.extend(proposals)
-
-                try:
-                    db.save_chat_message("user", user_input)
-                    db.save_chat_message("assistant", response)
-                except Exception:
-                    pass
-
-            except Exception as e:
-                err_msg = f"⚠️ The Buddy ran into trouble: {str(e)[:300]}"
-                st.session_state.messages.append({"role": "assistant", "content": err_msg})
-
-    st.rerun()
-
-
-def _render_wiki_proposals():
-    st.markdown("---")
-    st.markdown("**📝 Wiki Update Proposals**")
-    st.caption("The Buddy wants to save the following. Confirm or dismiss.")
-
-    remaining = []
-    for i, proposal in enumerate(st.session_state.pending_wiki_proposals):
-        with st.expander(f"💾 {proposal.get('title', 'New Entry')} [{proposal.get('entry_type', 'note')}]"):
-            st.write(proposal.get("content", ""))
-            river = proposal.get("river", "")
-            if river:
-                st.caption(f"River: {river}")
-            col1, col2 = st.columns(2)
-            saved = False
-            with col1:
-                if st.button("✅ Save", key=f"save_proposal_{i}"):
-                    try:
-                        db.add_wiki_entry({
-                            "entry_type": proposal.get("entry_type", "note"),
-                            "river": proposal.get("river"),
-                            "title": proposal.get("title"),
-                            "content": proposal.get("content"),
-                            "tags": proposal.get("tags", []),
-                            "confidence": proposal.get("confidence", "personal"),
-                            "source": "ai_buddy",
-                        })
-                        db.log_audit("ai_save", proposal.get("entry_type"), json.dumps(proposal))
-                        st.success("Saved to Wiki!")
-                        saved = True
-                    except Exception as e:
-                        st.error(f"Save failed: {e}")
-            with col2:
-                dismissed = st.button("❌ Dismiss", key=f"dismiss_proposal_{i}")
-            if not saved and not dismissed:
-                remaining.append(proposal)
-
-    st.session_state.pending_wiki_proposals = remaining
-
-
-def main():
-    init_session()
-
-    if not st.session_state.get("db_initialized"):
-        err = st.session_state.get("db_error", "Unknown DB error")
-        st.error(f"⚠️ Database connection failed: {err}")
-        st.info("Make sure DATABASE_URL is set in your environment secrets.")
-
-    render_sidebar()
-
-    st.title("🎣 Oregon OSINT Fishing Dashboard")
-    st.caption(
-        "33 rivers · USGS flow/temp/stage/turbidity · NDBC buoys · NOAA tides · NWS weather · "
-        "Bonneville passage · 31 hatcheries · 20 lakes · 🔍 DuckDuckGo search · AI Buddy · Karpathy Wiki  |  v4.0"
-    )
-
-    tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Map", "📊 Live Data", "🔍 Web Search", "📚 Karpathy Wiki"])
-
-    with tab1:
-        clicked_river = render_map_tab()
-        if clicked_river:
-            st.session_state["map_selected_river"] = clicked_river
-            st.info(f"💬 You clicked **{clicked_river}**. Ask the Buddy about it in the sidebar!")
-
-    with tab2:
-        render_live_data_tab()
-
-    with tab3:
-        render_web_search_tab()
-
-    with tab4:
-        render_wiki_tab()
-
-    st.markdown(
-        """
-        <div style="text-align:center; color:#555; font-size:11px; margin-top:40px; padding:10px 0;">
-        Oregon OSINT Fishing Dashboard v3.0 · two dog seeds<br>
-        Data: USGS · NDBC · NOAA Tides · NWS · DART · DuckDuckGo Search · OpenRouter AI<br>
-        ⚠️ Always verify regulations, conditions, and access with ODFW before fishing.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        from weather_fetchers import fetch_nws_weather
+        from oregon_gov_data import fetch_ndbc_buoys, fetch_noaa_tides
+        fetch_usgs_flows.clear()
+        fetch_odfw_stocking.clear()
+        fetch_bonneville_passage.clear()
+        fetch_nws_weather.clear()
+        fetch_ndbc_buoys.clear()
+        fetch_noaa_tides.clear()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
-    main()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
