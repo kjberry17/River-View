@@ -19,7 +19,8 @@ except ImportError:
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 MODELS = {
-    "DeepSeek V3 Flash (Free)": "deepseek/deepseek-chat-v3-0324:free",
+    "⚡ DeepSeek V4 Flash": "deepseek/deepseek-v4-flash",
+    "DeepSeek V3 0324 (Free)": "deepseek/deepseek-chat-v3-0324:free",
     "DeepSeek R1 — Reasoning (Free)": "deepseek/deepseek-r1:free",
     "Llama 3.1 8B (Free)": "meta-llama/llama-3.1-8b-instruct:free",
     "Mistral 7B (Free)": "mistralai/mistral-7b-instruct:free",
@@ -417,7 +418,7 @@ def chat_with_buddy(
     conversation_history: list,
     live_data: dict,
     db_module,
-    model_key: str = "DeepSeek V3 Flash (Free)",
+    model_key: str = "⚡ DeepSeek V4 Flash",
 ) -> tuple[str, list]:
     client = get_client()
     model = MODELS.get(model_key, FREE_FALLBACK)
