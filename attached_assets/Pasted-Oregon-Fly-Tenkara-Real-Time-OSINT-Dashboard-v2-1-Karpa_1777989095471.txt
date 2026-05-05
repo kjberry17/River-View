@@ -1,0 +1,358 @@
+Oregon Fly/Tenkara Real-Time OSINT Dashboard v2.1
+
+Karpathy Wiki Deep Knowledge Base Edition — Revised Dev One-Pager
+
+Date: May 5, 2026
+From: two dog seeds
+Goal: Build a mobile-first Oregon fly/tenkara dashboard that combines live river/stocking data, an interactive map, and a persistent AI memory system — the Karpathy Wiki — so the Fishing Buddy gets smarter every trip.
+
+⸻
+
+1. Product Vision
+
+The AI Fishing Buddy is not just a chat window. It is a living Oregon fishing companion.
+
+* Live data = real-time nervous system
+* Karpathy Wiki = long-term memory, fishing logs, preferences, river notes, spot intel, and learned patterns
+* AI agent = brain that reasons over live data + personal knowledge
+* Dashboard/map = simple interface for non-technical anglers
+
+The user opens one link, checks the map, asks the Buddy where to fish, logs a trip, and the system remembers what worked.
+
+⸻
+
+2. Revised Stack
+
+Frontend
+
+* Streamlit
+* Mobile-first layout
+* Full-screen dashboard mode
+* Sidebar AI Fishing Buddy
+* Tabs for map, live data, and Wiki
+
+Map
+
+* Folium + streamlit-folium preferred for MVP
+* Leafmap is optional if we need heavier geospatial features
+* Dark Oregon basemap
+* Color-coded river/stocking/spot pins
+
+AI
+
+* OpenRouter unified API
+* Model selector in sidebar:
+    * Free/auto router
+    * Fast model
+    * Pro model
+* OpenAI-compatible client
+* App-side tool loop for function calling
+* OpenRouter supports standardized tool calling across supported models, but the app must execute the tools and return results to the model.  ￼
+
+Knowledge Base
+
+Do not rely on local SQLite persistence in Streamlit Cloud production. Streamlit Community Cloud does not guarantee persistent local file storage, so local DB files can disappear after reboot/redeploy.  ￼
+
+Use this split:
+
+* SQLite = local dev, demo mode, export/import, offline backup
+* Supabase Postgres or Turso/libSQL = production persistent memory
+* FTS5 / keyword search = MVP retrieval
+* Embeddings = optional semantic search after core app works
+
+SQLite FTS5 is a built-in full-text search extension suitable for efficient keyword search over Wiki/log content.  ￼
+
+⸻
+
+3. Core MVP Features
+
+A. Map Tab
+
+* Full-screen Oregon map
+* Color-coded pins:
+    * Good conditions
+    * Caution
+    * Poor/high/low water
+    * Stocked water
+    * User Wiki spots
+* Click a river or spot → prefill AI Buddy context
+* Display “Data last updated”
+* Manual refresh button
+* Auto-refresh every 5 minutes
+
+B. Live Data Tab
+
+* USGS flow cards
+* ODFW stocking cards/tables
+* River condition summaries
+* Fallback messages when APIs fail
+* “Best today for tenkara” ranking
+
+C. Karpathy Wiki Tab
+
+Three main sections:
+
+1. My Preferences
+    * Home base
+    * Favorite rivers
+    * Preferred style: tenkara, dry fly, nymphing, small streams, stocked trout, etc.
+    * Max drive time
+    * Gear list
+    * Risk comfort
+    * Wading comfort
+    * Catch-and-release preference
+2. My Fishing Log
+    * Date
+    * River
+    * Spot
+    * Conditions
+    * Flies
+    * Fish caught
+    * Notes
+    * AI summary
+    * “What patterns do you see?” button
+3. Oregon Spot Wiki
+    * River profiles
+    * Seasonal notes
+    * User-added spots
+    * Access notes
+    * Flow preferences
+    * Tenkara suitability
+    * Safety notes
+    * Source/provenance labels
+
+⸻
+
+4. Required Data Model
+
+Minimum production tables:
+
+users
+preferences
+fishing_logs
+wiki_entries
+wiki_sources
+wiki_audit_log
+river_gage_map
+gage_snapshots_optional
+
+Key Rules
+
+* Every preference/log/wiki entry belongs to a user_id
+* Every AI write creates an audit record
+* Every spot note has a confidence/source label
+* Exact secret spots should support privacy levels:
+    * exact
+    * fuzzy
+    * private-only
+
+⸻
+
+5. Retrieval Logic
+
+Every AI chat request should assemble context in this order:
+
+1. User preferences
+2. Recent fishing logs
+3. Matching Wiki entries
+4. Matching river/gage data
+5. ODFW stocking context
+6. Recent conversation history
+
+Use hybrid retrieval:
+
+* Exact river/spot/tag match
+* Full-text search
+* Optional embedding similarity
+* Recency boost
+* User preference boost
+* Confidence/source boost
+
+The AI should always explain recommendations in practical fishing language, not raw data language.
+
+Example:
+
+“The Crooked is in your tenkara comfort range, flows are stable, and your logs show you did well there last May on small dries. Fish soft seams and banks before noon.”
+
+⸻
+
+6. AI Tooling
+
+Implement three app-side tools:
+
+query_wiki
+
+Searches preferences, logs, and Wiki entries.
+
+update_wiki
+
+Creates proposed structured updates.
+
+Important: the model should not directly mutate trusted memory. The app validates the write first.
+
+Auto-save allowed for:
+
+* Fishing logs
+* Chat summaries
+* Low-risk notes
+
+Confirmation required for:
+
+* Preference changes
+* Secret spot entries
+* Deleting/editing existing knowledge
+* Any safety-sensitive or legal guidance
+
+get_live_data
+
+Refreshes USGS/ODFW data on demand.
+
+⸻
+
+7. AI Behavior
+
+System behavior:
+
+You are a fun, witty, highly experienced Oregon fly/tenkara fishing buddy. You have access to live USGS/ODFW data and a private Karpathy Wiki containing user preferences, logs, and spot knowledge. Always use the Wiki and live data before answering. Give practical, safe, concise advice. Prefer actionable fishing guidance over raw data. Use light humor and fishing puns. If the user shares useful new fishing info, propose a structured Wiki update.
+
+The Buddy should answer like:
+
+* Where should I fish today?
+* What flies should I bring?
+* Is this river too high for tenkara?
+* What did I do last time on the McKenzie?
+* Log today’s trip
+* Remember that this spot fishes best after rain
+* Build me a Saturday plan within 90 minutes of Bend
+
+⸻
+
+8. Safety, Trust, and Provenance
+
+Every recommendation should label its basis:
+
+* Live: USGS/ODFW current data
+* Logged: user’s own history
+* Wiki: private saved knowledge
+* Inferred: AI pattern recognition
+* Unverified: user/forum/imported note
+
+Add a “Why this recommendation?” expander that shows:
+
+* Live data used
+* Wiki entries used
+* Log entries used
+* Any uncertainty
+
+⸻
+
+9. Package List
+
+MVP
+
+streamlit
+pandas
+requests
+openai
+pydantic
+tenacity
+folium
+streamlit-folium
+python-dotenv
+
+Search / ranking
+
+numpy
+scikit-learn
+rapidfuzz
+
+Production database — pick one
+
+Supabase route:
+
+supabase
+
+Turso/libSQL route:
+
+libsql-client
+
+Postgres route:
+
+sqlalchemy
+psycopg2-binary
+
+Optional later
+
+streamlit-autorefresh
+sentence-transformers
+torch
+
+Avoid local sentence-transformers for first deploy unless performance is tested. Hosted embeddings or plain FTS search are simpler for MVP.
+
+⸻
+
+10. Build Order
+
+Phase 1 — Working dashboard
+
+* Streamlit layout
+* Map tab
+* Live data tab
+* USGS/ODFW fetchers
+* Refresh logic
+* Last-updated indicators
+* Basic AI chat with full conversation history
+
+Phase 2 — Karpathy Wiki
+
+* Production DB connection
+* Tables
+* Preferences editor
+* Fishing log form
+* Spot Wiki editor
+* Search UI
+* Audit log
+
+Phase 3 — Agentic Buddy
+
+* query_wiki
+* get_live_data
+* update_wiki
+* Tool-calling loop
+* RAG context injection
+* Wiki write validation
+* “Why this recommendation?” expander
+
+Phase 4 — Fishing intelligence
+
+* River condition scoring
+* User-style scoring
+* Drive-time filtering
+* Seasonal patterns
+* “Plan my day” button
+* “Save this as trip plan”
+* “Summarize my fishing patterns”
+
+⸻
+
+11. Final Deployment Plan
+
+1. Build locally with SQLite adapter.
+2. Add production DB adapter for Supabase or Turso.
+3. Store API keys in Streamlit secrets.
+4. Deploy on Streamlit Cloud.
+5. Use hosted DB for all persistent Wiki/log/preference data.
+6. Keep SQLite export/import as backup and portability feature.
+
+⸻
+
+Final Dev Directive
+
+Ship this as a living Oregon fishing memory system, not just a data dashboard.
+
+The map shows what is happening now.
+The live data explains current river conditions.
+The Karpathy Wiki remembers the angler.
+The AI Buddy combines all three into useful, personal, actionable fishing advice.
+
+The key revision: SQLite is fine for local/offline/dev, but production memory must live in Supabase, Turso, or another persistent hosted database. Everything else in the original vision stands — just with safer memory, better retrieval, user separation, and auditable AI writes.
