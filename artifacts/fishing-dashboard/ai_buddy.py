@@ -19,17 +19,28 @@ except ImportError:
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 MODELS = {
+    # ── Default ──────────────────────────────────────────────────────────────
     "⚡ DeepSeek V4 Flash": "deepseek/deepseek-v4-flash",
-    "DeepSeek V3 0324 (Free)": "deepseek/deepseek-chat-v3-0324:free",
-    "DeepSeek R1 — Reasoning (Free)": "deepseek/deepseek-r1:free",
-    "Llama 3.1 8B (Free)": "meta-llama/llama-3.1-8b-instruct:free",
-    "Mistral 7B (Free)": "mistralai/mistral-7b-instruct:free",
-    "Gemma 2 9B (Free)": "google/gemma-2-9b-it:free",
-    "Pro (Claude 3.5 Sonnet)": "anthropic/claude-3.5-sonnet",
-    "Vision (Gemini Flash)": "google/gemini-flash-1.5",
+    # ── Top Free Models ──────────────────────────────────────────────────────
+    "🆓 Gemini 2.5 Flash (Free · 1M ctx)": "google/gemini-2.5-flash-preview:free",
+    "🆓 Llama 4 Maverick (Free · 131K ctx)": "meta-llama/llama-4-maverick:free",
+    "🆓 Llama 4 Scout (Free · 512K ctx)": "meta-llama/llama-4-scout:free",
+    "🆓 Llama 3.3 70B (Free · 128K ctx)": "meta-llama/llama-3.3-70b-instruct:free",
+    "🆓 Qwen3 235B MoE (Free · 128K ctx)": "qwen/qwen3-235b-a22b:free",
+    "🆓 Qwen3 30B MoE (Free · 128K ctx)": "qwen/qwen3-30b-a3b:free",
+    "🆓 DeepSeek R1 Reasoning (Free · 164K ctx)": "deepseek/deepseek-r1:free",
+    "🆓 DeepSeek V3 (Free · 64K ctx)": "deepseek/deepseek-chat:free",
+    "🆓 Trinity Large Preview (Free · 131K ctx)": "arcee-ai/trinity-large-preview:free",
+    "🆓 Mistral Small 3.1 24B (Free · 128K ctx)": "mistralai/mistral-small-3.1-24b-instruct:free",
+    "🆓 Gemma 3 27B (Free · 96K ctx)": "google/gemma-3-27b-it:free",
+    "🆓 Mistral 7B (Free · 32K ctx)": "mistralai/mistral-7b-instruct:free",
+    # ── Premium ──────────────────────────────────────────────────────────────
+    "💎 Trinity Large Thinking (Reasoning)": "arcee-ai/trinity-large-thinking",
+    "💎 Claude 3.5 Sonnet": "anthropic/claude-3.5-sonnet",
+    "💎 Gemini Flash 1.5": "google/gemini-flash-1.5",
 }
 
-FREE_FALLBACK = "deepseek/deepseek-chat-v3-0324:free"
+FREE_FALLBACK = "meta-llama/llama-4-scout:free"
 
 SYSTEM_PROMPT = """You are a fun, witty, highly experienced Oregon fly and tenkara fishing buddy named "The Buddy".
 
