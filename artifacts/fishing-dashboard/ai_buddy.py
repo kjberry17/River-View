@@ -19,14 +19,16 @@ except ImportError:
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 MODELS = {
-    "Auto — Free (Llama 3.1)": "meta-llama/llama-3.1-8b-instruct:free",
-    "Fast — Free (Mistral 7B)": "mistralai/mistral-7b-instruct:free",
-    "Smart — Free (Gemma 2)": "google/gemma-2-9b-it:free",
+    "DeepSeek V3 Flash (Free)": "deepseek/deepseek-chat-v3-0324:free",
+    "DeepSeek R1 — Reasoning (Free)": "deepseek/deepseek-r1:free",
+    "Llama 3.1 8B (Free)": "meta-llama/llama-3.1-8b-instruct:free",
+    "Mistral 7B (Free)": "mistralai/mistral-7b-instruct:free",
+    "Gemma 2 9B (Free)": "google/gemma-2-9b-it:free",
     "Pro (Claude 3.5 Sonnet)": "anthropic/claude-3.5-sonnet",
     "Vision (Gemini Flash)": "google/gemini-flash-1.5",
 }
 
-FREE_FALLBACK = "mistralai/mistral-7b-instruct:free"
+FREE_FALLBACK = "deepseek/deepseek-chat-v3-0324:free"
 
 SYSTEM_PROMPT = """You are a fun, witty, highly experienced Oregon fly and tenkara fishing buddy named "The Buddy".
 
@@ -415,7 +417,7 @@ def chat_with_buddy(
     conversation_history: list,
     live_data: dict,
     db_module,
-    model_key: str = "Auto — Free (Llama 3.1)",
+    model_key: str = "DeepSeek V3 Flash (Free)",
 ) -> tuple[str, list]:
     client = get_client()
     model = MODELS.get(model_key, FREE_FALLBACK)
