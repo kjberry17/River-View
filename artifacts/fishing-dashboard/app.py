@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 
 st.set_page_config(
-    page_title="Oregon Fly/Tenkara Dashboard",
+    page_title="Oregon OSINT Fishing Dashboard",
     page_icon="🎣",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -23,7 +23,7 @@ def init_session():
     if "pending_wiki_proposals" not in st.session_state:
         st.session_state.pending_wiki_proposals = []
     if "model_key" not in st.session_state:
-        st.session_state.model_key = "Auto (Free)"
+        st.session_state.model_key = "Auto — Free (Llama 3.1)"
     if "db_initialized" not in st.session_state:
         try:
             db.init_db()
@@ -33,16 +33,33 @@ def init_session():
             st.session_state.db_error = str(e)
 
 
+def _build_live_data() -> dict:
+    flows = fetch_usgs_flows()
+    stocking = fetch_odfw_stocking()
+    live_data = {**flows, "_stocking": stocking}
+    try:
+        from weather_fetchers import fetch_nws_weather
+        live_data["_weather"] = fetch_nws_weather()
+    except Exception:
+        pass
+    try:
+        from fish_passage import fetch_bonneville_passage
+        live_data["_passage"] = fetch_bonneville_passage()
+    except Exception:
+        pass
+    return live_data
+
+
 def render_sidebar():
     with st.sidebar:
         st.title("🎣 AI Fishing Buddy")
-        st.caption("Powered by OpenRouter + Your Karpathy Wiki")
+        st.caption("Powered by OpenRouter · Llama 3.1 · Your Karpathy Wiki")
 
         st.session_state.model_key = st.selectbox(
             "Model",
             list(ai_buddy.MODELS.keys()),
             index=0,
-            help="Auto is free. Pro gives better reasoning for complex questions.",
+            help="Free models work great. Pro options require OpenRouter credits.",
         )
 
         if not ai_buddy.OPENROUTER_API_KEY:
@@ -54,9 +71,8 @@ def render_sidebar():
         st.caption("Ask anything — where to fish, fly selection, trip planning, log a trip...")
 
         for msg in st.session_state.messages:
-            role_icon = "🎣" if msg["role"] == "assistant" else "🧑"
             with st.chat_message(msg["role"]):
-                st.markdown(f"{msg['content']}")
+                st.markdown(msg["content"])
 
         if st.session_state.pending_wiki_proposals:
             _render_wiki_proposals()
@@ -69,17 +85,23 @@ def render_sidebar():
 
         with st.expander("💡 Quick Prompts"):
             quick_prompts = [
-                "Where should I fish today?",
+                "Where should I fish today near Bend?",
                 "Best tenkara rivers right now?",
                 "What flies should I bring to the Deschutes?",
                 "Is the McKenzie fishable this week?",
+                "Where are rainbows hitting near Eugene?",
+                "What's the Metolius like right now?",
                 "Log a trip to the Crooked River — 3 fish on kebari #14",
                 "What patterns do you see in my fishing logs?",
                 "Build me a Saturday plan within 2 hours of Bend",
                 "Which rivers are currently stocked?",
+                "What hatcheries are on the Rogue?",
+                "Is there a steelhead run active right now?",
+                "Best lakes for trophy trout in Central Oregon?",
+                "What's the weather like for fishing this weekend?",
             ]
             for prompt in quick_prompts:
-                if st.button(prompt, key=f"quick_{prompt[:20]}", width="stretch"):
+                if st.button(prompt, key=f"quick_{hash(prompt)}", width="stretch"):
                     _handle_chat(prompt)
 
         if st.button("🗑️ Clear Chat", width="stretch"):
@@ -94,9 +116,7 @@ def _handle_chat(user_input: str):
     with st.sidebar:
         with st.spinner("The Buddy is thinking..."):
             try:
-                flows = fetch_usgs_flows()
-                stocking = fetch_odfw_stocking()
-                live_data = {**flows, "_stocking": stocking}
+                live_data = _build_live_data()
 
                 history = [
                     {"role": m["role"], "content": m["content"]}
@@ -106,7 +126,7 @@ def _handle_chat(user_input: str):
                 response, proposals = ai_buddy.chat_with_buddy(
                     user_input,
                     history,
-                    flows,
+                    live_data,
                     db,
                     st.session_state.model_key,
                 )
@@ -122,7 +142,7 @@ def _handle_chat(user_input: str):
                     pass
 
             except Exception as e:
-                err_msg = f"⚠️ The Buddy ran into trouble: {str(e)[:200]}"
+                err_msg = f"⚠️ The Buddy ran into trouble: {str(e)[:300]}"
                 st.session_state.messages.append({"role": "assistant", "content": err_msg})
 
     st.rerun()
@@ -131,7 +151,7 @@ def _handle_chat(user_input: str):
 def _render_wiki_proposals():
     st.markdown("---")
     st.markdown("**📝 Wiki Update Proposals**")
-    st.caption("The Buddy wants to save the following. Confirm or dismiss each one.")
+    st.caption("The Buddy wants to save the following. Confirm or dismiss.")
 
     remaining = []
     for i, proposal in enumerate(st.session_state.pending_wiki_proposals):
@@ -141,6 +161,7 @@ def _render_wiki_proposals():
             if river:
                 st.caption(f"River: {river}")
             col1, col2 = st.columns(2)
+            saved = False
             with col1:
                 if st.button("✅ Save", key=f"save_proposal_{i}"):
                     try:
@@ -154,14 +175,14 @@ def _render_wiki_proposals():
                             "source": "ai_buddy",
                         })
                         db.log_audit("ai_save", proposal.get("entry_type"), json.dumps(proposal))
-                        st.success("Saved!")
+                        st.success("Saved to Wiki!")
+                        saved = True
                     except Exception as e:
                         st.error(f"Save failed: {e}")
-                    continue
             with col2:
-                if st.button("❌ Dismiss", key=f"dismiss_proposal_{i}"):
-                    continue
-            remaining.append(proposal)
+                dismissed = st.button("❌ Dismiss", key=f"dismiss_proposal_{i}")
+            if not saved and not dismissed:
+                remaining.append(proposal)
 
     st.session_state.pending_wiki_proposals = remaining
 
@@ -176,8 +197,11 @@ def main():
 
     render_sidebar()
 
-    st.title("🎣 Oregon Fly/Tenkara Dashboard")
-    st.caption("Real-time OSINT · Karpathy Wiki · AI Fishing Buddy  |  two dog seeds  |  v2.1")
+    st.title("🎣 Oregon OSINT Fishing Dashboard")
+    st.caption(
+        "33 rivers · USGS live flow & temp · NWS weather · Bonneville fish passage · "
+        "30 hatcheries · 20 lakes · AI Buddy · Karpathy Wiki  |  v3.0"
+    )
 
     tab1, tab2, tab3 = st.tabs(["🗺️ Map", "📊 Live Data", "📚 Karpathy Wiki"])
 
@@ -195,10 +219,10 @@ def main():
 
     st.markdown(
         """
-        <div style="text-align:center; color:#666; font-size:12px; margin-top:40px; padding:10px 0;">
-        Oregon Fly/Tenkara Dashboard v2.1 · two dog seeds<br>
-        Live data: USGS Water Services · Stocking: ODFW · AI: OpenRouter<br>
-        ⚠️ Always check local regulations, water conditions, and access before fishing.
+        <div style="text-align:center; color:#555; font-size:11px; margin-top:40px; padding:10px 0;">
+        Oregon OSINT Fishing Dashboard v3.0 · two dog seeds<br>
+        Data: USGS Water Services · ODFW · NWS · DART (Columbia Basin Research) · OpenRouter AI<br>
+        ⚠️ Always verify regulations, conditions, and access with ODFW before fishing.
         </div>
         """,
         unsafe_allow_html=True,
