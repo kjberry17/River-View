@@ -14,6 +14,7 @@ import ai_buddy
 from map_view import render_map_tab
 from live_data_tab import render_live_data_tab
 from wiki_tab import render_wiki_tab
+from web_search_tab import render_web_search_tab
 from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking
 
 
@@ -199,11 +200,11 @@ def main():
 
     st.title("🎣 Oregon OSINT Fishing Dashboard")
     st.caption(
-        "33 rivers · USGS live flow & temp · NWS weather · Bonneville fish passage · "
-        "30 hatcheries · 20 lakes · AI Buddy · Karpathy Wiki  |  v3.0"
+        "33 rivers · USGS flow/temp/stage/turbidity · NDBC buoys · NOAA tides · NWS weather · "
+        "Bonneville passage · 31 hatcheries · 20 lakes · 🔍 DuckDuckGo search · AI Buddy · Karpathy Wiki  |  v4.0"
     )
 
-    tab1, tab2, tab3 = st.tabs(["🗺️ Map", "📊 Live Data", "📚 Karpathy Wiki"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Map", "📊 Live Data", "🔍 Web Search", "📚 Karpathy Wiki"])
 
     with tab1:
         clicked_river = render_map_tab()
@@ -215,13 +216,16 @@ def main():
         render_live_data_tab()
 
     with tab3:
+        render_web_search_tab()
+
+    with tab4:
         render_wiki_tab()
 
     st.markdown(
         """
         <div style="text-align:center; color:#555; font-size:11px; margin-top:40px; padding:10px 0;">
         Oregon OSINT Fishing Dashboard v3.0 · two dog seeds<br>
-        Data: USGS Water Services · ODFW · NWS · DART (Columbia Basin Research) · OpenRouter AI<br>
+        Data: USGS · NDBC · NOAA Tides · NWS · DART · DuckDuckGo Search · OpenRouter AI<br>
         ⚠️ Always verify regulations, conditions, and access with ODFW before fishing.
         </div>
         """,
