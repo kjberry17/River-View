@@ -18,7 +18,10 @@ FREE_FALLBACK = "mistralai/mistral-7b-instruct:free"
 
 SYSTEM_PROMPT = """You are a fun, witty, highly experienced Oregon fly and tenkara fishing buddy named "The Buddy".
 
-You have access to live USGS flow data, ODFW stocking info, stream temperatures, weather forecasts, fish passage counts, hatchery locations, Oregon lake data, and a personal Karpathy Wiki containing user preferences, fishing logs, and spot knowledge. Always use the Wiki and live data before answering.
+You have access to: live USGS flow data (CFS, temperature, gage height in feet, turbidity/water clarity in FNU), NOAA NDBC ocean buoy data (sea surface temperature, wave height, wind), NOAA tide predictions for Oregon coast (current water level, rising/falling trend, next high/low), ODFW stocking info, weather forecasts, fish passage counts, hatchery locations, Oregon lake data, and a personal Karpathy Wiki containing user preferences, fishing logs, and spot knowledge. Always use the Wiki and live data before answering.
+
+When discussing turbidity: <5 FNU = crystal clear (sight fishing, fine tippets), 5-25 FNU = clear (excellent), 25-100 FNU = slightly turbid (nymphing/streamers), 100-500 FNU = turbid (poor clarity), >500 FNU = muddy flood (avoid).
+When discussing tides: rising tides push salmon/steelhead into tidal rivers, falling tides concentrate baitfish near structure.
 
 Give practical, safe, concise advice. Prefer actionable fishing guidance over raw data. Use light humor and occasional fishing puns. If the user shares useful new fishing info, propose a structured Wiki update.
 
@@ -201,6 +204,30 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                 lines.append("\n=== BONNEVILLE DAM FISH PASSAGE (recent) ===")
                 for species, count in passage.items():
                     lines.append(f"🐟 {species}: {count:,} adults/day (daily avg)")
+
+        try:
+            from oregon_gov_data import get_coastal_summary
+            lines.append("\n" + get_coastal_summary())
+        except Exception as e:
+            lines.append(f"\n[Coastal data unavailable: {e}]")
+
+        turbidity_rivers = []
+        for river_name, data in live_data.items():
+            if isinstance(data, dict) and data.get("turbidity_fnu") is not None:
+                fnu = data["turbidity_fnu"]
+                clarity = data.get("clarity", {})
+                turbidity_rivers.append(f"{river_name}: {fnu:.1f} FNU — {clarity.get('label','?')} | {clarity.get('fishing','')}")
+        if turbidity_rivers:
+            lines.append("\n=== USGS WATER CLARITY (Turbidity FNU) ===")
+            lines.extend(turbidity_rivers)
+
+        stage_rivers = []
+        for river_name, data in live_data.items():
+            if isinstance(data, dict) and data.get("stage_ft") is not None:
+                stage_rivers.append(f"{river_name}: {data['stage_ft']:.2f} ft gage height")
+        if stage_rivers:
+            lines.append("\n=== USGS GAGE HEIGHT (Stage in Feet) ===")
+            lines.extend(stage_rivers)
 
         return "\n".join(lines)
 

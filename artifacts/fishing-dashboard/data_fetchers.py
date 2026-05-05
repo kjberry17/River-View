@@ -490,7 +490,7 @@ def fetch_usgs_flows():
         resp = requests.get(USGS_API, params={
             "format": "json",
             "sites": site_ids,
-            "parameterCd": "00060,00010",
+            "parameterCd": "00060,00010,00065,63680",
             "siteStatus": "active",
         }, timeout=20)
         resp.raise_for_status()
@@ -519,6 +519,11 @@ def fetch_usgs_flows():
                     elif param_code == "00010":
                         results[river]["temp_c"] = val
                         results[river]["temp_f"] = round(val * 9 / 5 + 32, 1)
+                    elif param_code == "00065":
+                        results[river]["stage_ft"] = val
+                    elif param_code == "63680":
+                        results[river]["turbidity_fnu"] = val
+                        results[river]["clarity"] = get_turbidity_label(val)
     except Exception as e:
         results["error"] = str(e)
 
@@ -557,7 +562,34 @@ def get_data_freshness_info(flows: dict) -> dict:
         "gage_reset_note": "USGS gages never 'reset' — they stream continuous readings. If a gage goes offline, the river shows as 'No Data'.",
         "weather_note": "NWS weather forecasts refresh every 30 minutes from the National Weather Service API.",
         "passage_note": "Bonneville Dam fish passage counts from DART (Columbia Basin Research). Updated daily.",
+        "coastal_note": "NDBC ocean buoys update every 10 minutes. NOAA tide stations update every 6 minutes.",
+        "turbidity_note": "USGS turbidity (FNU) sensors update every 15 min alongside flow. Not all sites have sensors.",
+        "stage_note": "USGS stage (gage height in feet) updates every 15 min. More intuitive than CFS for wading safety.",
     }
+
+
+def get_turbidity_label(fnu: float) -> dict:
+    """Interpret USGS turbidity (FNU) as a water clarity fishing indicator."""
+    if fnu is None:
+        return {"label": "No Data", "emoji": "❓", "color": "gray", "fishing": "Unknown clarity"}
+    if fnu < 5:
+        return {"label": f"{fnu:.1f} FNU — Crystal Clear", "emoji": "💎", "color": "cyan",
+                "fishing": "Sight fishing excellent. Tippet visibility matters — go fine."}
+    elif fnu < 25:
+        return {"label": f"{fnu:.1f} FNU — Clear", "emoji": "🟢", "color": "green",
+                "fishing": "Great conditions. Dries, nymphs, streamers all productive."}
+    elif fnu < 100:
+        return {"label": f"{fnu:.1f} FNU — Slightly Turbid", "emoji": "🟡", "color": "yellow",
+                "fishing": "Nymphing and wet flies best. Large attractors visible to fish."}
+    elif fnu < 400:
+        return {"label": f"{fnu:.1f} FNU — Turbid", "emoji": "🟠", "color": "orange",
+                "fishing": "Poor visibility. Big dark streamers or eggs. Fish holding in softer water."}
+    elif fnu < 1500:
+        return {"label": f"{fnu:.1f} FNU — Muddy", "emoji": "🔴", "color": "red",
+                "fishing": "Very poor clarity. Try tributary mouths or wait for conditions to improve."}
+    else:
+        return {"label": f"{fnu:.0f} FNU — Flood Mud", "emoji": "⛔", "color": "darkred",
+                "fishing": "Dangerous muddy flood conditions. Do not wade — wait for water to clear."}
 
 
 def get_condition(river_name: str, cfs: float) -> dict:
@@ -680,6 +712,9 @@ def build_river_summary(flows: dict, stocking: list) -> list:
             last_updated = "estimated (spring-fed)"
         temp_f = flow_data.get("temp_f") if isinstance(flow_data, dict) else None
         temp_cond = get_temp_condition(temp_f)
+        stage_ft = flow_data.get("stage_ft") if isinstance(flow_data, dict) else None
+        turbidity = flow_data.get("turbidity_fnu") if isinstance(flow_data, dict) else None
+        clarity = flow_data.get("clarity") if isinstance(flow_data, dict) else get_turbidity_label(None)
         info = RIVER_INFO.get(river, {})
         summary.append({
             "river": river,
@@ -695,6 +730,9 @@ def build_river_summary(flows: dict, stocking: list) -> list:
             "source_note": flow_data.get("note", "") if isinstance(flow_data, dict) else "",
             "temp_f": temp_f,
             "temp_condition": temp_cond,
+            "stage_ft": stage_ft,
+            "turbidity_fnu": turbidity,
+            "clarity": clarity,
             "species": info.get("species", []),
             "gear": info.get("gear", []),
             "region": info.get("region", "Oregon"),

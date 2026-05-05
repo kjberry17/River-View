@@ -4,7 +4,7 @@ from datetime import datetime
 from data_fetchers import (
     fetch_usgs_flows, fetch_odfw_stocking, build_river_summary,
     get_condition, get_tenkara_score, get_temp_condition, get_data_freshness_info,
-    rank_tenkara, TYPICAL_RANGES, TENKARA_RIVERS, RIVER_INFO,
+    get_turbidity_label, rank_tenkara, TYPICAL_RANGES, TENKARA_RIVERS, RIVER_INFO,
 )
 
 
@@ -39,9 +39,10 @@ def render_live_data_tab():
 
     _render_freshness_banner(freshness)
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "💧 River Flows",
         "🌡️ Stream Temps",
+        "🌊 Coastal & Tides",
         "🌤️ Weather by Zone",
         "🐟 Fish Passage",
         "🎣 Stocking",
@@ -56,37 +57,42 @@ def render_live_data_tab():
         _render_temperature_section(river_summary)
 
     with tab3:
-        _render_weather_section()
+        _render_coastal_section()
 
     with tab4:
-        _render_fish_passage_section()
+        _render_weather_section()
 
     with tab5:
+        _render_fish_passage_section()
+
+    with tab6:
         _render_stocking_section(stocking)
 
 
 def _render_freshness_banner(freshness: dict):
-    with st.expander("🕐 Data Sources & Freshness — When does this data update?", expanded=False):
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.markdown("**🌊 USGS Stream Flow & Temp**")
-            st.caption(f"Latest reading: **{freshness['usgs_sensor_time']}**")
+    with st.expander("🕐 Data Sources & Freshness — All live APIs wired in", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("**🌊 USGS (Flow · Temp · Stage · Turbidity)**")
+            st.caption(f"Latest: **{freshness['usgs_sensor_time']}**")
             st.caption(f"📡 {freshness['live_river_count']}/{freshness['total_rivers']} rivers live")
             st.caption(freshness["usgs_sensor_cadence"])
-            st.caption(freshness["app_cache_ttl"])
-            st.caption(freshness["gage_reset_note"])
-        with col2:
+            st.caption(freshness.get("stage_note", ""))
+            st.caption(freshness.get("turbidity_note", ""))
+        with c2:
+            st.markdown("**🌊 NDBC Buoys · NOAA Tides**")
+            st.caption(freshness.get("coastal_note", ""))
+            st.markdown("[NDBC →](https://www.ndbc.noaa.gov) · [NOAA Tides →](https://tidesandcurrents.noaa.gov)")
             st.markdown("**🌤️ NWS Weather**")
             st.caption(freshness["weather_note"])
             st.markdown("[NWS Oregon →](https://www.weather.gov/pqr/)")
-        with col3:
-            st.markdown("**🐟 Fish Passage**")
+        with c3:
+            st.markdown("**🐟 DART Fish Passage**")
             st.caption(freshness["passage_note"])
-            st.markdown("[DART System →](https://www.cbr.washington.edu/dart/)")
-        with col4:
+            st.markdown("[DART →](https://www.cbr.washington.edu/dart/)")
             st.markdown("**📚 Karpathy Wiki**")
             st.caption(freshness["wiki_db_note"])
-            st.caption("✅ Never resets — persistent PostgreSQL.")
+            st.caption("✅ PostgreSQL — never resets.")
 
 
 def _render_usgs_section(flows: dict, river_summary: list):
@@ -144,13 +150,23 @@ def _render_flow_card(river: dict):
     cfs_display = f"{cfs:.0f} CFS" if cfs is not None else "No data"
     color_css = {
         "green": "#2ecc71", "yellow": "#f1c40f", "orange": "#e67e22",
-        "red": "#e74c3c", "purple": "#9b59b6", "gray": "#95a5a6", "blue": "#3498db"
+        "red": "#e74c3c", "purple": "#9b59b6", "gray": "#95a5a6",
+        "blue": "#3498db", "cyan": "#00bcd4", "darkred": "#c0392b",
     }.get(cond["color"], "#95a5a6")
 
     temp_line = ""
     if river.get("temp_f"):
         tc = river["temp_condition"]
         temp_line = f"<br>🌡️ <b>Temp:</b> {tc['label']}"
+
+    stage_line = ""
+    if river.get("stage_ft") is not None:
+        stage_line = f"<br>📏 <b>Stage:</b> {river['stage_ft']:.2f} ft gage height"
+
+    clarity_line = ""
+    clarity = river.get("clarity", {})
+    if clarity and clarity.get("emoji") != "❓":
+        clarity_line = f"<br>{clarity['emoji']} <b>Clarity:</b> {clarity['label']}"
 
     tenkara_line = ""
     if river["is_tenkara"]:
@@ -174,13 +190,117 @@ def _render_flow_card(river: dict):
             <div style="font-size:14px; font-weight:bold;">{cond['emoji']} {river['river']}</div>
             <div style="font-size:10px; color:#888; margin-bottom:4px;">{river.get('region','')}</div>
             <div style="font-size:22px; font-weight:bold; color:{color_css};">{cfs_display}</div>
-            <div style="font-size:12px; color:#ccc;">{cond['label']}{tenkara_line}{temp_line}{range_line}</div>
+            <div style="font-size:12px; color:#ccc;">{cond['label']}{stage_line}{tenkara_line}{temp_line}{clarity_line}{range_line}</div>
             <div style="font-size:11px; color:#aaa; margin-top:4px;">🐟 {species_str}</div>
             <div style="font-size:11px; color:#aaa;">🎣 {gear_str}</div>
             {f'<div style="font-size:10px; color:#666; margin-top:3px;">📍 {access[:60]}</div>' if access else ''}
             {f'<div style="font-size:10px; color:#e67e22; margin-top:2px;">⚖️ {regulations[:70]}</div>' if regulations else ''}
         </div>""",
         unsafe_allow_html=True,
+    )
+
+
+def _render_coastal_section():
+    st.markdown("### 🌊 Oregon Coast — Live Ocean & Tide Conditions")
+    st.caption("NDBC buoys update every 10 min · NOAA tides update every 6 min · Fishing impact auto-assessed")
+
+    from oregon_gov_data import fetch_ndbc_buoys, fetch_noaa_tides
+
+    with st.spinner("Fetching live buoy and tide data..."):
+        buoys = fetch_ndbc_buoys()
+        tides = fetch_noaa_tides()
+
+    if st.button("🔄 Refresh Coastal Data", key="refresh_coastal"):
+        st.cache_data.clear()
+        st.rerun()
+
+    st.markdown("#### 📡 NDBC Ocean Buoys — Real-Time Offshore Conditions")
+    st.caption("Sea surface temp, wave height, wind speed — key for bar crossing safety and ocean fishing decisions")
+
+    buoy_cols = st.columns(len(buoys))
+    for idx, (name, b) in enumerate(buoys.items()):
+        with buoy_cols[idx]:
+            if b.get("error"):
+                st.error(f"**{name}**\n\n⚠️ {b['error']}")
+                continue
+            impact = b.get("fishing_impact", {})
+            impact_color = {"green": "🟢", "yellow": "🟡", "orange": "🟠", "red": "🔴"}.get(impact.get("color"), "❓")
+            sst = f"{b['sst_f']:.1f}°F ({b['sst_c']:.1f}°C)" if b.get("sst_f") else "SST not reporting"
+            waves = f"{b['wave_height_ft']:.1f} ft" if b.get("wave_height_ft") else "N/A"
+            period = f"{b['dominant_period_s']:.0f}s" if b.get("dominant_period_s") else ""
+            wind = f"{b['wind_speed_kts']:.0f} kts {b.get('wind_dir_str','')}" if b.get("wind_speed_kts") else "calm / N/A"
+            pres = f"{b['pressure_hpa']:.1f} hPa" if b.get("pressure_hpa") else "N/A"
+            atmp = f"{b['air_temp_f']:.1f}°F" if b.get("air_temp_f") else "N/A"
+            obs = b.get("obs_time", "?")
+
+            st.markdown(
+                f"""<div style="border:1px solid #1e4d6e; border-radius:10px; padding:14px; background:#0a1929; margin-bottom:8px;">
+                    <div style="font-size:13px; font-weight:bold; color:#64b5f6;">📡 {name}</div>
+                    <div style="font-size:10px; color:#666; margin-bottom:8px;">{b.get('desc','')}</div>
+                    <div style="font-size:20px; font-weight:bold; color:#4fc3f7;">🌡️ {sst}</div>
+                    <div style="font-size:13px; color:#b0bec5; margin-top:4px;">🌊 Waves: <b>{waves}</b> {period} period</div>
+                    <div style="font-size:13px; color:#b0bec5;">💨 Wind: <b>{wind}</b></div>
+                    <div style="font-size:12px; color:#888;">🌬️ Air: {atmp} · Press: {pres}</div>
+                    <div style="font-size:11px; color:#90a4ae; margin-top:6px; border-top:1px solid #1a3a55; padding-top:6px;">
+                        {impact_color} <b>{impact.get('label','')}</b><br>
+                        <span style="color:#78909c;">{impact.get('notes','')}</span>
+                    </div>
+                    <div style="font-size:10px; color:#546e7a; margin-top:4px;">⏱️ Obs: {obs} UTC</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+    st.divider()
+    st.markdown("#### 🌊 NOAA Tide Stations — Oregon Coast")
+    st.caption("Real-time water level (MLLW) + next high/low tide timing for estuary and tidal river planning")
+
+    tide_cols = st.columns(min(len(tides), 2))
+    for idx, (name, t) in enumerate(tides.items()):
+        with tide_cols[idx % 2]:
+            if t.get("error"):
+                st.warning(f"**{name}**: {t['error']}")
+                continue
+
+            wl = t.get("water_level_ft")
+            wl_str = f"{wl:.2f} ft MLLW" if wl is not None else "N/A"
+            trend = t.get("trend", "→")
+            trend_color = {"⬆️ Rising": "#4fc3f7", "⬇️ Falling": "#ef9a9a", "→ Stable": "#90a4ae"}.get(trend, "#90a4ae")
+
+            next_events = t.get("next_tide_events", [])
+            events_html = ""
+            for ev in next_events[:3]:
+                ev_type = ev["type"]
+                ev_time = ev["time"][-5:]
+                ev_level = f"{ev['level']:.1f}ft"
+                ev_emoji = ev.get("emoji", "🌊")
+                events_html += f"<div style='font-size:12px;'>{ev_emoji} <b>{ev_type}</b> {ev_time} — {ev_level}</div>"
+
+            fishing_note = t.get("fishing_note", "")
+
+            st.markdown(
+                f"""<div style="border:1px solid #1b3a4b; border-radius:10px; padding:14px; background:#061723; margin-bottom:8px;">
+                    <div style="font-size:13px; font-weight:bold; color:#4dd0e1;">🌊 {name}</div>
+                    <div style="font-size:10px; color:#546e7a; margin-bottom:8px;">{t.get('desc','')}</div>
+                    <div style="font-size:22px; font-weight:bold; color:{trend_color};">{wl_str}</div>
+                    <div style="font-size:14px; color:{trend_color}; margin-bottom:6px;">{trend}</div>
+                    <div style="border-top:1px solid #0d2b3e; padding-top:6px; margin-bottom:6px;">
+                        <div style="font-size:11px; color:#78909c; margin-bottom:3px;">Next tides today:</div>
+                        {events_html}
+                    </div>
+                    <div style="font-size:11px; color:#80cbc4; margin-top:6px; padding-top:6px; border-top:1px solid #0d2b3e;">
+                        🎣 {fishing_note}
+                    </div>
+                    <div style="font-size:10px; color:#37474f; margin-top:4px;">Obs: {t.get('obs_time','?')}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+    st.divider()
+    st.info(
+        "💡 **Tidal Fishing Tips for Oregon:** Rising tides push salmon and steelhead into tidal rivers (Alsea, "
+        "Nestucca, Coquille). Fish estuary edges 1–2 hours before high tide. Falling tides concentrate baitfish "
+        "near structure — perch, stripers, and rockfish follow. Check bar forecasts at [USCG Sector Columbia River]"
+        "(https://www.westcoast.fisheries.noaa.gov/) before any bar crossing."
     )
 
 
