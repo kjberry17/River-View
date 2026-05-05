@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Oregon Fishing Dashboard"
+version = "1.0.0"
+id = "FishDashboardOregon001"
+
+[[services]]
+localPort = 5000
+name = "Oregon Fishing Dashboard"
+paths = ["/"]
+
+[services.development]
+run = "cd artifacts/fishing-dashboard && pip install -q flask flask-cors requests gunicorn && PORT=5000 python app.py"
+
+[services.production]
+
+[services.production.build]
+args = ["pip", "install", "-r", "artifacts/fishing-dashboard/requirements.txt"]
+
+[services.production.run]
+args = ["bash", "artifacts/fishing-dashboard/start.sh"]
+
+[services.production.run.env]
+PORT = "5000"
+
+[services.production.health.startup]
+path = "/_stcore/health"
