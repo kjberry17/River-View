@@ -19,9 +19,7 @@ except ImportError:
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 MODELS = {
-    # ── Default ──────────────────────────────────────────────────────────────
     "⚡ DeepSeek V4 Flash": "deepseek/deepseek-v4-flash",
-    # ── Top Free Models ──────────────────────────────────────────────────────
     "🆓 Gemini 2.5 Flash (Free · 1M ctx)": "google/gemini-2.5-flash-preview:free",
     "🆓 Llama 4 Maverick (Free · 131K ctx)": "meta-llama/llama-4-maverick:free",
     "🆓 Llama 4 Scout (Free · 512K ctx)": "meta-llama/llama-4-scout:free",
@@ -34,10 +32,6 @@ MODELS = {
     "🆓 Mistral Small 3.1 24B (Free · 128K ctx)": "mistralai/mistral-small-3.1-24b-instruct:free",
     "🆓 Gemma 3 27B (Free · 96K ctx)": "google/gemma-3-27b-it:free",
     "🆓 Mistral 7B (Free · 32K ctx)": "mistralai/mistral-7b-instruct:free",
-    # ── Premium ──────────────────────────────────────────────────────────────
-    "💎 Trinity Large Thinking (Reasoning)": "arcee-ai/trinity-large-thinking",
-    "💎 Claude 3.5 Sonnet": "anthropic/claude-3.5-sonnet",
-    "💎 Gemini Flash 1.5": "google/gemini-flash-1.5",
 }
 
 FREE_FALLBACK = "meta-llama/llama-4-scout:free"
