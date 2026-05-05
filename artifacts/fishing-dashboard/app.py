@@ -90,6 +90,54 @@ def api_hatcheries():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/location")
+def api_location():
+    from flask import request as freq
+    q = freq.args.get("q", "").strip()
+    if not q:
+        return jsonify({"error": "No location specified"}), 400
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from location_api import geocode, find_nearby_rivers, get_nws_point_weather, find_nearby_hatcheries
+        from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking, build_river_summary
+
+        geo = geocode(q)
+        if not geo:
+            return jsonify({"error": "Location not found — try a city, zip code, or river name"}), 404
+
+        lat, lon = geo["lat"], geo["lon"]
+
+        def _get_rivers():
+            flows = fetch_usgs_flows()
+            stocking = fetch_odfw_stocking()
+            summaries = build_river_summary(flows, stocking)
+            return find_nearby_rivers(lat, lon, summaries)
+
+        def _get_weather():
+            return get_nws_point_weather(lat, lon)
+
+        def _get_hatcheries():
+            return find_nearby_hatcheries(lat, lon)
+
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            f_rivers = ex.submit(_get_rivers)
+            f_weather = ex.submit(_get_weather)
+            f_hatcheries = ex.submit(_get_hatcheries)
+            nearby = f_rivers.result()
+            weather = f_weather.result()
+            hatcheries = f_hatcheries.result()
+
+        return jsonify({
+            "location": geo,
+            "nearby_rivers": nearby,
+            "weather": weather,
+            "nearby_hatcheries": hatcheries,
+        })
+    except Exception as e:
+        log.error("location error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
     try:
