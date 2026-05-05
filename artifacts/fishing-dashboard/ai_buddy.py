@@ -4,6 +4,18 @@ import streamlit as st
 from openai import OpenAI, PermissionDeniedError, RateLimitError, APIStatusError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+# DuckDuckGo search — free, no API key required
+try:
+    from ddgs import DDGS as _DDGS
+    _SEARCH_LIB = "ddgs"
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS as _DDGS
+        _SEARCH_LIB = "duckduckgo_search"
+    except ImportError:
+        _DDGS = None
+        _SEARCH_LIB = None
+
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 MODELS = {
@@ -18,10 +30,24 @@ FREE_FALLBACK = "mistralai/mistral-7b-instruct:free"
 
 SYSTEM_PROMPT = """You are a fun, witty, highly experienced Oregon fly and tenkara fishing buddy named "The Buddy".
 
-You have access to: live USGS flow data (CFS, temperature, gage height in feet, turbidity/water clarity in FNU), NOAA NDBC ocean buoy data (sea surface temperature, wave height, wind), NOAA tide predictions for Oregon coast (current water level, rising/falling trend, next high/low), ODFW stocking info, weather forecasts, fish passage counts, hatchery locations, Oregon lake data, and a personal Karpathy Wiki containing user preferences, fishing logs, and spot knowledge. Always use the Wiki and live data before answering.
+You have access to:
+- Live USGS river data: flow (CFS), water temperature, gage height (feet), and turbidity/clarity (FNU)
+- NOAA NDBC ocean buoys: sea surface temp, wave height & period, wind speed/direction
+- NOAA tide stations: real-time water level, rising/falling trend, next high/low predictions
+- ODFW stocking info, NWS weather forecasts, Bonneville fish passage counts
+- Oregon hatchery and lake database
+- Karpathy Wiki: user's personal preferences, fishing logs, and spot notes
+- **Web search via DuckDuckGo**: search for real-time fishing reports, hatch reports, ODFW news, closures, regulations, and any current internet data
 
-When discussing turbidity: <5 FNU = crystal clear (sight fishing, fine tippets), 5-25 FNU = clear (excellent), 25-100 FNU = slightly turbid (nymphing/streamers), 100-500 FNU = turbid (poor clarity), >500 FNU = muddy flood (avoid).
-When discussing tides: rising tides push salmon/steelhead into tidal rivers, falling tides concentrate baitfish near structure.
+ALWAYS call query_wiki first. Then use get_live_data for conditions. Use web_search proactively for:
+- Current fishing reports or hatch reports for a specific river
+- Recent ODFW regulation changes or emergency closures
+- Hatch timing questions (search actual reports, not just from memory)
+- Local fishing forums (nwflyfish.com, westfly.com, oregonlive.com) for recent trip reports
+- Any question where current internet information would improve your answer
+
+Turbidity guide: <5 FNU=💎 crystal clear (go fine), 5-25=🟢 clear (excellent), 25-100=🟡 slightly turbid (nymphs/streamers), 100-500=🟠 turbid (poor), >500=🔴 muddy flood (avoid wading).
+Tides guide: rising tides push salmon/steelhead into tidal rivers; falling tides concentrate baitfish near structure.
 
 Give practical, safe, concise advice. Prefer actionable fishing guidance over raw data. Use light humor and occasional fishing puns. If the user shares useful new fishing info, propose a structured Wiki update.
 
@@ -116,6 +142,44 @@ TOOLS = [
                     "region": {"type": "string", "description": "Filter by Oregon region (coast, valley, eastern, southern, central)"},
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Search the internet via DuckDuckGo for current fishing reports, hatch reports, ODFW news, "
+                "emergency closures, regulation changes, trip reports, river conditions from fishing forums, "
+                "or any live information not available from local data. "
+                "Use for: fishing reports, hatch activity, regulation updates, closures, forum trip reports, "
+                "species run timing news, any question needing current internet data. "
+                "Good sources to target: dfw.state.or.us, nwflyfish.com, westfly.com, oregonlive.com, "
+                "troutunderground.com, hatchwatch.com, fishingw.com."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Search query. Be specific — include river name, species, and year. "
+                            "Example: 'Deschutes River fly fishing report May 2026' or "
+                            "'Oregon McKenzie River hatch report caddis 2026' or "
+                            "'ODFW emergency closure Rogue River 2026'"
+                        ),
+                    },
+                    "num_results": {
+                        "type": "integer",
+                        "description": "Number of results to return (3–8). Default 5.",
+                    },
+                    "fishing_context": {
+                        "type": "string",
+                        "description": "Optional context hint: 'report', 'hatch', 'closure', 'regulation', 'conditions', 'general'",
+                    },
+                },
+                "required": ["query"],
             },
         },
     },
@@ -262,7 +326,88 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
             )
         return "\n".join(results) if results else "No hatcheries found matching criteria."
 
+    elif tool_name == "web_search":
+        return _execute_web_search(args)
+
     return f"Unknown tool: {tool_name}"
+
+
+def _show_tool_status(tool_name: str, args: dict):
+    """Render a subtle inline status pill showing which tool the AI is calling."""
+    icons = {
+        "query_wiki": "📚",
+        "get_live_data": "📡",
+        "update_wiki": "✏️",
+        "get_hatchery_info": "🏭",
+        "web_search": "🔍",
+    }
+    labels = {
+        "query_wiki": "Reading your Wiki",
+        "get_live_data": "Fetching live river & ocean data",
+        "update_wiki": "Preparing Wiki update",
+        "get_hatchery_info": "Looking up hatcheries",
+        "web_search": f"Searching: {args.get('query', '')[:60]}",
+    }
+    icon = icons.get(tool_name, "⚙️")
+    label = labels.get(tool_name, tool_name)
+    try:
+        st.markdown(
+            f'<div style="display:inline-block; background:#1a2a3a; border:1px solid #2a4a6a; '
+            f'border-radius:20px; padding:3px 10px; font-size:11px; color:#6baed6; margin:2px 0;">'
+            f'{icon} {label}…</div>',
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        pass
+
+
+def _execute_web_search(args: dict) -> str:
+    """Run a DuckDuckGo search and return formatted results for the AI."""
+    if _DDGS is None:
+        return "❌ Web search unavailable: ddgs library not installed."
+
+    query = args.get("query", "").strip()
+    if not query:
+        return "❌ No search query provided."
+
+    num_results = min(max(int(args.get("num_results", 5)), 2), 8)
+    context = args.get("fishing_context", "general")
+
+    # Automatically add Oregon fishing context to queries if not already present
+    fishing_keywords = ["fishing", "fish", "hatch", "closure", "ODFW", "river", "stream",
+                        "steelhead", "salmon", "trout", "fly", "tenkara", "angling"]
+    if not any(kw.lower() in query.lower() for kw in fishing_keywords):
+        query = f"Oregon fishing {query}"
+
+    try:
+        with _DDGS() as ddg:
+            raw_results = list(ddg.text(query, max_results=num_results))
+
+        if not raw_results:
+            return f"🔍 No results found for: '{query}'"
+
+        lines = [f"🔍 Web search: **{query}**", f"Found {len(raw_results)} results:\n"]
+        for i, r in enumerate(raw_results, 1):
+            title = r.get("title", "No title")
+            url = r.get("href", "")
+            body = r.get("body", "")[:300].strip()
+            # Truncate body at sentence boundary for cleaner output
+            if len(body) == 300 and ". " in body[200:]:
+                body = body[:200 + body[200:].rfind(". ") + 1]
+            lines.append(f"**{i}. {title}**")
+            lines.append(f"   🔗 {url}")
+            lines.append(f"   {body}")
+            lines.append("")
+
+        lines.append(f"_Search performed via DuckDuckGo · {context} context_")
+        return "\n".join(lines)
+
+    except Exception as e:
+        err = str(e)[:120]
+        return (
+            f"⚠️ Web search encountered an issue: {err}\n"
+            f"This may be a temporary rate limit. Try rephrasing the query or retry in a moment."
+        )
 
 
 def chat_with_buddy(
@@ -305,6 +450,8 @@ def chat_with_buddy(
                 })
                 for tc in msg.tool_calls:
                     args = json.loads(tc.function.arguments)
+                    # Show a visual status pill for each tool call
+                    _show_tool_status(tc.function.name, args)
                     result = execute_tool(tc.function.name, args, live_data, db_module)
                     if tc.function.name == "update_wiki":
                         parsed = json.loads(result)
