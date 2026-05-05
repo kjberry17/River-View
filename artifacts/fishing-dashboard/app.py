@@ -79,10 +79,10 @@ def render_sidebar():
                 "Which rivers are currently stocked?",
             ]
             for prompt in quick_prompts:
-                if st.button(prompt, key=f"quick_{prompt[:20]}", use_container_width=True):
+                if st.button(prompt, key=f"quick_{prompt[:20]}", width="stretch"):
                     _handle_chat(prompt)
 
-        if st.button("🗑️ Clear Chat", use_container_width=True):
+        if st.button("🗑️ Clear Chat", width="stretch"):
             st.session_state.messages = []
             st.session_state.pending_wiki_proposals = []
             st.rerun()

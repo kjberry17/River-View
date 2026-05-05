@@ -3,7 +3,8 @@ import pandas as pd
 from datetime import datetime
 from data_fetchers import (
     fetch_usgs_flows, fetch_odfw_stocking, build_river_summary,
-    get_condition, get_tenkara_score, rank_tenkara, TYPICAL_RANGES, TENKARA_RIVERS
+    get_condition, get_tenkara_score, rank_tenkara, get_data_freshness_info,
+    TYPICAL_RANGES, TENKARA_RIVERS
 )
 
 
@@ -21,21 +22,12 @@ def render_live_data_tab():
         flows = fetch_usgs_flows()
         stocking = fetch_odfw_stocking()
         river_summary = build_river_summary(flows, stocking)
-
-    last_updated = "Just now"
-    for river_name, data in flows.items():
-        if isinstance(data, dict) and data.get("datetime"):
-            try:
-                dt = datetime.fromisoformat(data["datetime"].replace("Z", "+00:00"))
-                last_updated = dt.strftime("%b %d, %Y %I:%M %p UTC")
-            except Exception:
-                pass
-            break
+        freshness = get_data_freshness_info(flows)
 
     if "error" in flows:
         st.warning(f"⚠️ USGS API issue: {flows['error']}. Showing cached or fallback data.")
 
-    st.caption(f"Data last updated: {last_updated}")
+    _render_freshness_banner(freshness)
 
     _render_usgs_section(flows, river_summary)
     st.divider()
@@ -44,9 +36,28 @@ def render_live_data_tab():
     _render_stocking_section(stocking)
 
 
+def _render_freshness_banner(freshness: dict):
+    with st.expander("🕐 Data Sources & Freshness — When does this data update?", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🌊 USGS Stream Flow**")
+            st.caption(f"Latest sensor reading: **{freshness['usgs_sensor_time']}**")
+            st.caption(freshness["usgs_sensor_cadence"])
+            st.caption(freshness["app_cache_ttl"])
+            st.caption(freshness["gage_reset_note"])
+        with col2:
+            st.markdown("**🐟 ODFW Stocking**")
+            st.caption(freshness["odfw_note"])
+            st.markdown("[Check real-time ODFW schedule →](https://myodfw.com/articles/where-fish-odfw-stocking-schedule)")
+        with col3:
+            st.markdown("**📚 Karpathy Wiki / Your Data**")
+            st.caption(freshness["wiki_db_note"])
+            st.caption("✅ Logs, preferences, and spot notes survive app restarts and redeployments.")
+
+
 def _render_usgs_section(flows: dict, river_summary: list):
     st.markdown("### 💧 USGS Stream Flow — Oregon Rivers")
-    st.caption("Flow data refreshes every 5 minutes. Green = fishable, Red = dangerous.")
+    st.caption("Live from USGS Water Services · Sensors update every 15 min · App re-fetches every 5 min")
 
     rows = []
     for r in river_summary:
@@ -131,7 +142,7 @@ def _render_stocking_section(stocking: list):
     df = pd.DataFrame(stocking)
     if not df.empty:
         st.dataframe(df[["river", "location", "species", "size", "date"]],
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
     with st.expander("📋 About ODFW Stocking Data"):
         st.write("""

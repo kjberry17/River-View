@@ -9,14 +9,21 @@ USGS_STATS_API = "https://waterservices.usgs.gov/nwis/stat/"
 OREGON_GAGE_IDS = {
     "Deschutes River": "14103000",
     "McKenzie River": "14162500",
-    "Metolius River": "14075000",
     "Crooked River": "14087400",
     "North Santiam River": "14185000",
     "Sandy River": "14137000",
-    "North Umpqua River": "14317000",
+    "North Umpqua River": "14316500",
     "Rogue River": "14361500",
     "Wilson River": "14301500",
     "Willamette River": "14211720",
+}
+
+SPRING_FED_RIVERS = {
+    "Metolius River": {
+        "cfs": 1650,
+        "note": "Spring-fed — no active USGS gage. Flows are remarkably stable year-round (~1,500–1,800 CFS at lower stretch; upper sections near Camp Sherman run 50–200 CFS).",
+        "datetime": "estimated",
+    }
 }
 
 TENKARA_RIVERS = {"Deschutes River", "McKenzie River", "Metolius River",
@@ -52,6 +59,7 @@ TYPICAL_RANGES = {
 @st.cache_data(ttl=300)
 def fetch_usgs_flows():
     site_ids = ",".join(OREGON_GAGE_IDS.values())
+    results = {}
     try:
         resp = requests.get(USGS_API, params={
             "format": "json",
@@ -61,7 +69,6 @@ def fetch_usgs_flows():
         }, timeout=15)
         resp.raise_for_status()
         data = resp.json()
-        results = {}
         for ts in data.get("value", {}).get("timeSeries", []):
             site_code = ts["sourceInfo"]["siteCode"][0]["value"]
             values = ts.get("values", [{}])[0].get("value", [])
@@ -75,10 +82,42 @@ def fetch_usgs_flows():
                             "cfs": cfs,
                             "datetime": dt_str,
                             "site_id": site_code,
+                            "source": "usgs_live",
                         }
-        return results
     except Exception as e:
-        return {"error": str(e)}
+        results["error"] = str(e)
+
+    for river, meta in SPRING_FED_RIVERS.items():
+        results[river] = {
+            "cfs": meta["cfs"],
+            "datetime": meta["datetime"],
+            "site_id": None,
+            "source": "spring_fed_estimate",
+            "note": meta["note"],
+        }
+
+    return results
+
+
+def get_data_freshness_info(flows: dict) -> dict:
+    """Return structured info about when each data source was last updated."""
+    usgs_times = []
+    for river, data in flows.items():
+        if isinstance(data, dict) and data.get("source") == "usgs_live" and data.get("datetime"):
+            try:
+                dt = datetime.fromisoformat(data["datetime"].replace("Z", "+00:00"))
+                usgs_times.append(dt)
+            except Exception:
+                pass
+    latest_usgs = max(usgs_times) if usgs_times else None
+    return {
+        "usgs_sensor_time": latest_usgs.strftime("%b %d %I:%M %p UTC") if latest_usgs else "Unknown",
+        "usgs_sensor_cadence": "USGS sensors publish new readings every 15 minutes.",
+        "app_cache_ttl": "App caches flow data for 5 minutes, then re-fetches from USGS.",
+        "odfw_note": "ODFW stocking schedule is seasonally updated (weekly changes). App shows pattern-based estimates — check myodfw.com for exact truck locations.",
+        "wiki_db_note": "Your Karpathy Wiki (preferences, logs, spot notes) is stored in a persistent PostgreSQL database and never resets. It persists across restarts and redeployments.",
+        "gage_reset_note": "USGS does not 'reset' — sensors transmit continuous readings. If a gage goes offline, the app will show 'No Data' for that river.",
+    }
 
 
 def get_condition(river_name: str, cfs: float) -> dict:
@@ -162,8 +201,15 @@ def build_river_summary(flows: dict, stocking: list) -> list:
     for river, coords in RIVER_COORDS.items():
         flow_data = flows.get(river, {})
         cfs = flow_data.get("cfs") if isinstance(flow_data, dict) else None
+        source = flow_data.get("source", "unknown") if isinstance(flow_data, dict) else "unknown"
+        is_estimated = source == "spring_fed_estimate"
         condition = get_condition(river, cfs)
+        if is_estimated:
+            condition = {"status": "good", "color": "green", "label": "Spring-Fed — Stable", "emoji": "💧"}
         tenkara = get_tenkara_score(river, cfs)
+        last_updated = flow_data.get("datetime", "N/A") if isinstance(flow_data, dict) else "N/A"
+        if is_estimated:
+            last_updated = "estimated (spring-fed)"
         summary.append({
             "river": river,
             "lat": coords[0],
@@ -173,7 +219,9 @@ def build_river_summary(flows: dict, stocking: list) -> list:
             "tenkara_score": tenkara,
             "is_tenkara": river in TENKARA_RIVERS,
             "is_stocked": river in stocked_rivers,
-            "last_updated": flow_data.get("datetime", "N/A") if isinstance(flow_data, dict) else "N/A",
+            "last_updated": last_updated,
+            "is_estimated": is_estimated,
+            "source_note": flow_data.get("note", "") if isinstance(flow_data, dict) else "",
         })
     summary.sort(key=lambda x: (
         0 if x["condition"]["status"] == "good" else
