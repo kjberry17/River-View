@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 :root {
   --bg: #050b18;
@@ -294,6 +295,88 @@ footer a:hover{color:var(--cyan);}
 .fade-in{animation:fadeIn .3s ease both;}
 @keyframes pulse{0%,100%{opacity:.6;}50%{opacity:1;}}
 .live-dot{display:inline-block;width:6px;height:6px;background:var(--green);border-radius:50%;margin-right:4px;animation:pulse 2s ease-in-out infinite;}
+
+/* ── AI Buddy Chat ── */
+.buddy-layout{display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:500px;}
+.buddy-top-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+.buddy-model-select{background:var(--card);border:1px solid var(--border2);color:var(--text);padding:7px 12px;border-radius:8px;font-size:12px;font-family:'Inter',sans-serif;outline:none;flex:1;min-width:200px;}
+.buddy-model-select:focus{border-color:var(--cyan);}
+.buddy-clear-btn{background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.3);color:#ff4757;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:.2s;}
+.buddy-clear-btn:hover{background:rgba(255,71,87,.2);}
+.buddy-messages{flex:1;overflow-y:auto;padding:4px 0 12px;display:flex;flex-direction:column;gap:14px;}
+.buddy-welcome{background:linear-gradient(135deg,rgba(0,212,255,.05),rgba(0,180,255,.08));border:1px solid rgba(0,180,255,.18);border-radius:14px;padding:20px;text-align:center;}
+.buddy-welcome-icon{font-size:40px;margin-bottom:10px;}
+.buddy-welcome h3{font-size:16px;font-weight:700;color:var(--cyan);margin-bottom:6px;}
+.buddy-welcome p{font-size:12px;color:var(--text2);line-height:1.6;max-width:460px;margin:0 auto 14px;}
+.buddy-suggestions{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;}
+.buddy-suggest-btn{background:rgba(0,180,255,.1);border:1px solid rgba(0,180,255,.2);color:var(--text2);padding:6px 12px;border-radius:20px;cursor:pointer;font-size:11px;font-family:'Inter',sans-serif;transition:.2s;}
+.buddy-suggest-btn:hover{background:rgba(0,180,255,.2);color:var(--cyan);border-color:rgba(0,212,255,.4);}
+.buddy-msg{display:flex;flex-direction:column;gap:4px;animation:fadeIn .25s ease;}
+.buddy-msg.user{align-items:flex-end;}
+.buddy-msg.assistant{align-items:flex-start;}
+.buddy-bubble{max-width:85%;padding:12px 16px;border-radius:14px;line-height:1.6;font-size:13px;}
+.buddy-msg.user .buddy-bubble{background:rgba(0,212,255,.15);border:1px solid rgba(0,212,255,.25);color:var(--text);border-radius:14px 14px 4px 14px;}
+.buddy-msg.assistant .buddy-bubble{background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:14px 14px 14px 4px;}
+.buddy-bubble p{margin:0 0 8px;}
+.buddy-bubble p:last-child{margin-bottom:0;}
+.buddy-bubble strong{color:var(--cyan);}
+.buddy-bubble code{background:rgba(0,180,255,.12);padding:1px 5px;border-radius:4px;font-family:var(--mono);font-size:11px;color:var(--cyan);}
+.buddy-bubble pre{background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:8px;padding:10px;overflow-x:auto;margin:6px 0;}
+.buddy-bubble pre code{background:none;padding:0;color:var(--text2);}
+.buddy-bubble ul,
+.buddy-bubble ol{margin:4px 0 8px 18px;}
+.buddy-bubble li{margin-bottom:3px;}
+.buddy-bubble h3,.buddy-bubble h4{color:var(--cyan);margin:10px 0 4px;}
+.buddy-label{font-size:10px;color:var(--text3);padding:0 4px;}
+.buddy-tool-pill{display:inline-flex;align-items:center;gap:5px;background:#1a2a3a;border:1px solid #2a4a6a;border-radius:20px;padding:3px 10px;font-size:11px;color:#6baed6;margin:2px 0;}
+.buddy-typing{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:14px 14px 14px 4px;width:fit-content;}
+.buddy-typing-dots{display:flex;gap:4px;}
+.buddy-typing-dot{width:6px;height:6px;background:var(--cyan);border-radius:50%;animation:typingBounce 1.2s ease-in-out infinite;}
+.buddy-typing-dot:nth-child(2){animation-delay:.2s;}
+.buddy-typing-dot:nth-child(3){animation-delay:.4s;}
+@keyframes typingBounce{0%,60%,100%{transform:translateY(0);}30%{transform:translateY(-6px);}}
+.buddy-wiki-card{background:rgba(165,94,234,.08);border:1px solid rgba(165,94,234,.25);border-radius:10px;padding:12px;margin-top:8px;}
+.buddy-wiki-title{font-size:12px;font-weight:700;color:var(--purple);margin-bottom:4px;}
+.buddy-wiki-actions{display:flex;gap:8px;margin-top:8px;}
+.buddy-wiki-accept{background:rgba(0,255,135,.12);border:1px solid rgba(0,255,135,.3);color:var(--green);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;}
+.buddy-wiki-reject{background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.25);color:var(--red);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;}
+.buddy-input-area{display:flex;gap:10px;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border);}
+.buddy-textarea{flex:1;background:rgba(0,180,255,.07);border:1px solid rgba(0,180,255,.22);color:var(--text);padding:10px 14px;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;resize:none;min-height:44px;max-height:120px;line-height:1.5;transition:.2s;}
+.buddy-textarea:focus{border-color:var(--cyan);background:rgba(0,180,255,.1);}
+.buddy-textarea::placeholder{color:var(--text3);}
+.buddy-send-btn{background:linear-gradient(135deg,rgba(0,212,255,.25),rgba(0,180,255,.15));border:1px solid rgba(0,212,255,.4);color:var(--cyan);padding:10px 18px;border-radius:10px;cursor:pointer;font-size:13px;font-weight:700;white-space:nowrap;transition:.2s;height:44px;}
+.buddy-send-btn:hover{background:linear-gradient(135deg,rgba(0,212,255,.4),rgba(0,180,255,.25));box-shadow:0 0 16px rgba(0,212,255,.2);}
+.buddy-send-btn:disabled{opacity:.4;cursor:not-allowed;}
+
+/* ── Mobile-first responsive ── */
+@media(max-width:600px){
+  header{padding:0 12px;gap:10px;height:52px;}
+  .logo-text{font-size:13px;}
+  .logo-text span{display:none;}
+  .stats-bar{display:none;}
+  .refresh-btn{padding:6px 10px;font-size:11px;}
+  nav{padding:0 8px;gap:0;}
+  .tab-btn{padding:10px 10px;font-size:11px;}
+  .loc-strip{padding:8px 12px;gap:7px;}
+  .loc-input-wrap{flex:1;}
+  .loc-status{display:none;}
+  main{padding:14px 12px 30px;}
+  #map{height:360px;}
+  .card-grid{grid-template-columns:1fr 1fr;}
+  .echart{min-height:220px;}
+  .echart-tall{min-height:320px;}
+  .buddy-layout{height:calc(100vh - 180px);}
+  .buddy-bubble{max-width:94%;}
+  .buddy-model-select{font-size:11px;}
+  .section-title{font-size:15px;}
+  .filter-bar{gap:7px;}
+  .filter-bar input,.filter-bar select{font-size:11px;padding:6px 9px;}
+  .chart-wrap{padding:12px;}
+}
+@media(max-width:400px){
+  .card-grid{grid-template-columns:1fr;}
+  .tab-btn{padding:9px 8px;font-size:10px;}
+}
 </style>
 </head>
 <body>
@@ -322,6 +405,7 @@ footer a:hover{color:var(--cyan);}
   <button class="tab-btn" onclick="showTab('hatcheries')">🏭 Hatcheries</button>
   <button class="tab-btn" onclick="showTab('lakes')">🏞️ Lakes</button>
   <button class="tab-btn" id="local-tab-btn" onclick="showTab('local')">📍 Local</button>
+  <button class="tab-btn" onclick="showTab('buddy')">🤖 AI Buddy</button>
 </nav>
 
 <div class="loc-strip">
@@ -590,6 +674,56 @@ footer a:hover{color:var(--cyan);}
     </label>
   </div>
   <div id="lake-cards" class="card-grid"></div>
+</div>
+
+<!-- ── AI BUDDY ── -->
+<div id="tab-buddy" class="tab-section fade-in">
+  <div class="buddy-layout">
+    <div class="buddy-top-bar">
+      <div style="flex:1;min-width:0;">
+        <div class="section-title" style="margin-bottom:2px;"><span>🤖</span> The Buddy — AI Fishing Assistant</div>
+        <div class="section-sub">Powered by live USGS data, your fishing logs &amp; web search</div>
+      </div>
+      <select id="buddy-model" class="buddy-model-select">
+        <option value="⚡ DeepSeek V4 Flash">⚡ DeepSeek V4 Flash</option>
+        <option value="🆓 Gemini 2.5 Flash (Free · 1M ctx)">🆓 Gemini 2.5 Flash (Free)</option>
+        <option value="🆓 Llama 4 Maverick (Free · 131K ctx)">🆓 Llama 4 Maverick (Free)</option>
+        <option value="🆓 Llama 4 Scout (Free · 512K ctx)">🆓 Llama 4 Scout (Free)</option>
+        <option value="🆓 Llama 3.3 70B (Free · 128K ctx)">🆓 Llama 3.3 70B (Free)</option>
+        <option value="🆓 Qwen3 235B MoE (Free · 128K ctx)">🆓 Qwen3 235B (Free)</option>
+        <option value="🆓 DeepSeek R1 Reasoning (Free · 164K ctx)">🆓 DeepSeek R1 Reasoning (Free)</option>
+        <option value="🆓 DeepSeek V3 (Free · 64K ctx)">🆓 DeepSeek V3 (Free)</option>
+        <option value="🆓 Mistral Small 3.1 24B (Free · 128K ctx)">🆓 Mistral Small 3.1 24B (Free)</option>
+      </select>
+      <button class="buddy-clear-btn" onclick="clearChat()">🗑 Clear</button>
+    </div>
+    <div id="buddy-messages" class="buddy-messages">
+      <div class="buddy-welcome">
+        <div class="buddy-welcome-icon">🎣</div>
+        <h3>Hey there, I'm The Buddy!</h3>
+        <p>I have live access to Oregon river flows, temps, weather, fish passage counts, hatcheries, and the web. Ask me anything about fishing conditions, where to go today, hatch reports, regulations, or gear advice.</p>
+        <div class="buddy-suggestions">
+          <button class="buddy-suggest-btn" onclick="suggestChat('Where should I fish today near Bend?')">📍 Where to fish near Bend?</button>
+          <button class="buddy-suggest-btn" onclick="suggestChat('What are current Deschutes River conditions?')">💧 Deschutes conditions</button>
+          <button class="buddy-suggest-btn" onclick="suggestChat('What hatches are active on the McKenzie right now?')">🦋 McKenzie hatches</button>
+          <button class="buddy-suggest-btn" onclick="suggestChat('Are there any ODFW closures or alerts right now?')">⚠️ ODFW alerts</button>
+          <button class="buddy-suggest-btn" onclick="suggestChat('Best tenkara rivers in Oregon right now?')">🎣 Best tenkara rivers</button>
+          <button class="buddy-suggest-btn" onclick="suggestChat('How are the coastal conditions for salmon fishing?')">🌊 Coastal salmon</button>
+        </div>
+      </div>
+    </div>
+    <div class="buddy-input-area">
+      <textarea
+        id="buddy-input"
+        class="buddy-textarea"
+        placeholder="Ask about conditions, where to fish, hatches, regulations, gear…"
+        rows="1"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}"
+        oninput="autoResizeTextarea(this)"
+      ></textarea>
+      <button id="buddy-send" class="buddy-send-btn" onclick="sendChat()">Send ↑</button>
+    </div>
+  </div>
 </div>
 
 </main>
@@ -1718,6 +1852,169 @@ window.addEventListener('resize', () => {
     .filter(Boolean).forEach(c => c.resize());
   if (map) map.invalidateSize();
 });
+
+// ── AI Buddy Chat ──
+let buddyHistory = [];
+let buddyTyping = false;
+
+function autoResizeTextarea(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function suggestChat(text) {
+  document.getElementById('buddy-input').value = text;
+  sendChat();
+}
+
+function clearChat() {
+  buddyHistory = [];
+  const container = document.getElementById('buddy-messages');
+  container.innerHTML = `
+    <div class="buddy-welcome">
+      <div class="buddy-welcome-icon">🎣</div>
+      <h3>Hey there, I'm The Buddy!</h3>
+      <p>I have live access to Oregon river flows, temps, weather, fish passage counts, hatcheries, and the web. Ask me anything about fishing conditions, where to go today, hatch reports, regulations, or gear advice.</p>
+      <div class="buddy-suggestions">
+        <button class="buddy-suggest-btn" onclick="suggestChat('Where should I fish today near Bend?')">📍 Where to fish near Bend?</button>
+        <button class="buddy-suggest-btn" onclick="suggestChat('What are current Deschutes River conditions?')">💧 Deschutes conditions</button>
+        <button class="buddy-suggest-btn" onclick="suggestChat('What hatches are active on the McKenzie right now?')">🦋 McKenzie hatches</button>
+        <button class="buddy-suggest-btn" onclick="suggestChat('Are there any ODFW closures or alerts right now?')">⚠️ ODFW alerts</button>
+        <button class="buddy-suggest-btn" onclick="suggestChat('Best tenkara rivers in Oregon right now?')">🎣 Best tenkara rivers</button>
+        <button class="buddy-suggest-btn" onclick="suggestChat('How are the coastal conditions for salmon fishing?')">🌊 Coastal salmon</button>
+      </div>
+    </div>`;
+}
+
+function renderMd(text) {
+  if (typeof marked !== 'undefined') {
+    marked.setOptions({ breaks: true, gfm: true });
+    return marked.parse(text);
+  }
+  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+function appendUserMsg(text) {
+  const container = document.getElementById('buddy-messages');
+  const el = document.createElement('div');
+  el.className = 'buddy-msg user';
+  el.innerHTML = `
+    <div class="buddy-label">You</div>
+    <div class="buddy-bubble">${text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
+function showTypingIndicator() {
+  const container = document.getElementById('buddy-messages');
+  const el = document.createElement('div');
+  el.className = 'buddy-msg assistant';
+  el.id = 'buddy-typing-indicator';
+  el.innerHTML = `
+    <div class="buddy-label">The Buddy</div>
+    <div class="buddy-typing">
+      <div class="buddy-typing-dots">
+        <div class="buddy-typing-dot"></div>
+        <div class="buddy-typing-dot"></div>
+        <div class="buddy-typing-dot"></div>
+      </div>
+      <span style="font-size:11px;color:var(--text3);">thinking…</span>
+    </div>`;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
+function removeTypingIndicator() {
+  const el = document.getElementById('buddy-typing-indicator');
+  if (el) el.remove();
+}
+
+function appendAssistantMsg(text, wikiProposals) {
+  const container = document.getElementById('buddy-messages');
+  const el = document.createElement('div');
+  el.className = 'buddy-msg assistant';
+
+  let wikiHtml = '';
+  if (wikiProposals && wikiProposals.length) {
+    wikiProposals.forEach((proposal, idx) => {
+      wikiHtml += `
+        <div class="buddy-wiki-card">
+          <div class="buddy-wiki-title">📓 Wiki Update Proposed: ${proposal.title || 'New Entry'}</div>
+          <div style="font-size:11px;color:var(--text2);margin:4px 0;">${(proposal.content || '').substring(0, 150)}${(proposal.content||'').length > 150 ? '…' : ''}</div>
+          <div class="buddy-wiki-actions">
+            <button class="buddy-wiki-accept" onclick="acceptWikiProposal(${idx})">✓ Save to Wiki</button>
+            <button class="buddy-wiki-reject" onclick="this.closest('.buddy-wiki-card').remove()">✕ Dismiss</button>
+          </div>
+        </div>`;
+    });
+  }
+
+  el.innerHTML = `
+    <div class="buddy-label">🎣 The Buddy</div>
+    <div class="buddy-bubble">${renderMd(text)}</div>
+    ${wikiHtml}`;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
+let pendingWikiProposals = [];
+function acceptWikiProposal(idx) {
+  const proposal = pendingWikiProposals[idx];
+  if (!proposal) return;
+  fetch('/fish/wiki', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(proposal),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      document.querySelectorAll('.buddy-wiki-card')[idx].innerHTML = `<div style="color:var(--green);font-size:12px;padding:4px;">✓ Saved to your Wiki!</div>`;
+    }
+  }).catch(() => {});
+}
+
+async function sendChat() {
+  if (buddyTyping) return;
+  const input = document.getElementById('buddy-input');
+  const message = (input.value || '').trim();
+  if (!message) return;
+
+  const model = document.getElementById('buddy-model').value;
+  input.value = '';
+  input.style.height = 'auto';
+  document.getElementById('buddy-send').disabled = true;
+  buddyTyping = true;
+
+  appendUserMsg(message);
+  showTypingIndicator();
+
+  const history = buddyHistory.slice(-14);
+
+  try {
+    const resp = await fetch('/fish/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history, model }),
+    });
+    const data = await resp.json();
+    removeTypingIndicator();
+
+    if (data.error) {
+      appendAssistantMsg(`⚠️ ${data.error}`, []);
+    } else {
+      pendingWikiProposals = data.wiki_proposals || [];
+      appendAssistantMsg(data.response || 'No response.', pendingWikiProposals);
+      buddyHistory.push({ role: 'user', content: message });
+      buddyHistory.push({ role: 'assistant', content: data.response || '' });
+    }
+  } catch (e) {
+    removeTypingIndicator();
+    appendAssistantMsg('⚠️ Network error. Please check your connection and try again.', []);
+  } finally {
+    buddyTyping = false;
+    document.getElementById('buddy-send').disabled = false;
+    input.focus();
+  }
+}
 
 // ── Boot ──
 document.addEventListener('DOMContentLoaded', () => {

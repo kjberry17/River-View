@@ -148,6 +148,77 @@ def api_location():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/fish/chat", methods=["POST"])
+def api_chat():
+    from flask import request as freq
+    body = freq.get_json(silent=True) or {}
+    user_message = (body.get("message") or "").strip()
+    history = body.get("history") or []
+    model_key = body.get("model") or "⚡ DeepSeek V4 Flash"
+
+    if not user_message:
+        return jsonify({"error": "No message provided"}), 400
+
+    try:
+        import database as db
+        from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking, build_river_summary
+        from weather_fetchers import fetch_nws_weather
+        from fish_passage import fetch_bonneville_passage
+
+        flows = fetch_usgs_flows()
+        stocking = fetch_odfw_stocking()
+        river_summary = build_river_summary(flows, stocking)
+
+        live_data = {}
+        for r in river_summary:
+            live_data[r["river"]] = r
+
+        try:
+            live_data["_weather"] = fetch_nws_weather()
+        except Exception:
+            live_data["_weather"] = {}
+
+        try:
+            live_data["_passage"] = fetch_bonneville_passage()
+        except Exception:
+            live_data["_passage"] = {}
+
+        live_data["_stocking"] = [r for r in river_summary if r.get("is_stocked")]
+
+        from ai_buddy import chat_with_buddy
+        response, wiki_proposals = chat_with_buddy(
+            user_message=user_message,
+            conversation_history=history,
+            live_data=live_data,
+            db_module=db,
+            model_key=model_key,
+        )
+        return jsonify({"response": response, "wiki_proposals": wiki_proposals})
+    except Exception as e:
+        log.error("chat error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/wiki", methods=["POST"])
+def api_wiki_save():
+    from flask import request as freq
+    body = freq.get_json(silent=True) or {}
+    try:
+        import database as db
+        entry_id = db.add_wiki_entry({
+            "entry_type": body.get("entry_type", "spot"),
+            "river": body.get("river"),
+            "title": body.get("title", "Untitled"),
+            "content": body.get("content", ""),
+            "tags": body.get("tags", []),
+            "confidence": body.get("confidence", "personal"),
+        })
+        return jsonify({"ok": True, "id": entry_id})
+    except Exception as e:
+        log.error("wiki save error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/fish/refresh", methods=["POST"])
 def api_refresh():
     try:
