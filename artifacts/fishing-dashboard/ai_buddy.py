@@ -19,22 +19,20 @@ except ImportError:
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 MODELS = {
+    "🆓 GPT-OSS 120B (Free)": "openai/gpt-oss-120b:free",
+    "🆓 Nemotron Super 120B (Free)": "nvidia/nemotron-3-super-120b-a12b:free",
+    "🆓 Gemma 3 27B (Free)": "google/gemma-3-27b-it:free",
+    "🆓 Llama 3.3 70B (Free)": "meta-llama/llama-3.3-70b-instruct:free",
+    "🆓 Gemma 4 31B (Free)": "google/gemma-4-31b-it:free",
+    "🆓 MiniMax M2.5 (Free)": "minimax/minimax-m2.5:free",
+    "🆓 Qwen3 Coder (Free)": "qwen/qwen3-coder:free",
+    "🆓 Gemma 3 12B (Free)": "google/gemma-3-12b-it:free",
+    "🆓 Llama 3.2 3B (Free · Fast)": "meta-llama/llama-3.2-3b-instruct:free",
+    "✨ Gemini 2.5 Flash": "google/gemini-2.5-flash",
     "⚡ DeepSeek V4 Flash": "deepseek/deepseek-v4-flash",
-    "🆓 Gemini 2.5 Flash (Free · 1M ctx)": "google/gemini-2.5-flash-preview:free",
-    "🆓 Llama 4 Maverick (Free · 131K ctx)": "meta-llama/llama-4-maverick:free",
-    "🆓 Llama 4 Scout (Free · 512K ctx)": "meta-llama/llama-4-scout:free",
-    "🆓 Llama 3.3 70B (Free · 128K ctx)": "meta-llama/llama-3.3-70b-instruct:free",
-    "🆓 Qwen3 235B MoE (Free · 128K ctx)": "qwen/qwen3-235b-a22b:free",
-    "🆓 Qwen3 30B MoE (Free · 128K ctx)": "qwen/qwen3-30b-a3b:free",
-    "🆓 DeepSeek R1 Reasoning (Free · 164K ctx)": "deepseek/deepseek-r1:free",
-    "🆓 DeepSeek V3 (Free · 64K ctx)": "deepseek/deepseek-chat:free",
-    "🆓 Trinity Large Preview (Free · 131K ctx)": "arcee-ai/trinity-large-preview:free",
-    "🆓 Mistral Small 3.1 24B (Free · 128K ctx)": "mistralai/mistral-small-3.1-24b-instruct:free",
-    "🆓 Gemma 3 27B (Free · 96K ctx)": "google/gemma-3-27b-it:free",
-    "🆓 Mistral 7B (Free · 32K ctx)": "mistralai/mistral-7b-instruct:free",
 }
 
-FREE_FALLBACK = "meta-llama/llama-4-scout:free"
+FREE_FALLBACK = "openai/gpt-oss-120b:free"
 
 SYSTEM_PROMPT = """You are a fun, witty, highly experienced Oregon fly and tenkara fishing buddy named "The Buddy".
 
@@ -240,16 +238,16 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                 continue
             if isinstance(data, dict) and "cfs" in data:
                 cfs = data["cfs"]
+                cfs_str = f"{float(cfs):.0f} CFS" if cfs is not None else "No data"
                 cond = get_condition(river_name, cfs)
                 tenkara = get_tenkara_score(river_name, cfs)
-                temp_str = ""
-                if data.get("temp_f"):
-                    temp_str = f", Temp: {data['temp_f']:.1f}°F"
+                temp_f = data.get("temp_f")
+                temp_str = f", Temp: {temp_f:.1f}°F" if temp_f is not None else ""
                 source = "📡 USGS live" if data.get("source") == "usgs_live" else "💧 spring-fed est."
                 info = RIVER_INFO.get(river_name, {})
                 species = ", ".join(info.get("species", []))
                 lines.append(
-                    f"{river_name}: {cfs:.0f} CFS — {cond['label']} — Tenkara: {tenkara}{temp_str} | "
+                    f"{river_name}: {cfs_str} — {cond['label']} — Tenkara: {tenkara}{temp_str} | "
                     f"Species: {species} | {source}"
                 )
 
@@ -257,7 +255,10 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
         if stocking:
             lines.append("\n=== ODFW STOCKING (seasonal patterns) ===")
             for s in stocking:
-                lines.append(f"🐟 {s['river']} @ {s['location']}: {s['species']} {s['size']}")
+                loc = s.get('location') or s.get('region', '')
+                sp = s.get('species') or ', '.join(s.get('species_list', []))
+                size = s.get('size', '')
+                lines.append(f"🐟 {s.get('river','?')} @ {loc}: {sp} {size}".rstrip())
 
         if include_weather:
             weather = live_data.get("_weather", {})
@@ -278,8 +279,15 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                     lines.append(f"🐟 {species}: {count:,} adults/day (daily avg)")
 
         try:
-            from oregon_gov_data import get_coastal_summary
-            lines.append("\n" + get_coastal_summary())
+            from oregon_gov_data import fetch_ndbc_buoys
+            buoys = fetch_ndbc_buoys()
+            if buoys:
+                lines.append("\n=== NOAA COASTAL BUOYS ===")
+                for name, b in list(buoys.items())[:3]:
+                    if not b.get("error"):
+                        sst = f"{b['sst_f']:.1f}°F" if b.get("sst_f") else "N/A"
+                        waves = f"{b['wave_height_ft']:.1f} ft" if b.get("wave_height_ft") else "N/A"
+                        lines.append(f"📡 {name}: SST {sst}, Waves {waves}, Wind {b.get('wind_speed_kts','?')} kts {b.get('wind_dir_str','')}")
         except Exception as e:
             lines.append(f"\n[Coastal data unavailable: {e}]")
 

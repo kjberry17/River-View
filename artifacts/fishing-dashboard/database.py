@@ -26,6 +26,7 @@ def db_cursor():
 
 def init_db():
     with db_cursor() as cur:
+        cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS preferences (
                 id SERIAL PRIMARY KEY,
@@ -232,13 +233,21 @@ def get_wiki_entries(user_id="default", entry_type=None, river=None):
 
 def search_wiki(query: str, user_id="default"):
     with db_cursor() as cur:
-        cur.execute("""
-            SELECT *, similarity(content || ' ' || title, %s) AS score
-            FROM wiki_entries
-            WHERE user_id = %s
-              AND (content ILIKE %s OR title ILIKE %s OR river ILIKE %s)
-            ORDER BY score DESC LIMIT 5;
-        """, (query, user_id, f"%{query}%", f"%{query}%", f"%{query}%"))
+        try:
+            cur.execute("""
+                SELECT *, similarity(content || ' ' || title, %s) AS score
+                FROM wiki_entries
+                WHERE user_id = %s
+                  AND (content ILIKE %s OR title ILIKE %s OR river ILIKE %s)
+                ORDER BY score DESC LIMIT 5;
+            """, (query, user_id, f"%{query}%", f"%{query}%", f"%{query}%"))
+        except Exception:
+            cur.execute("""
+                SELECT * FROM wiki_entries
+                WHERE user_id = %s
+                  AND (content ILIKE %s OR title ILIKE %s OR river ILIKE %s)
+                ORDER BY updated_at DESC LIMIT 5;
+            """, (user_id, f"%{query}%", f"%{query}%", f"%{query}%"))
         return [dict(r) for r in cur.fetchall()]
 
 

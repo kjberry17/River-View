@@ -9,6 +9,12 @@ log = logging.getLogger(__name__)
 app = Flask(__name__, static_folder="static")
 CORS(app)
 
+try:
+    import database as _db
+    _db.init_db()
+except Exception as _e:
+    log.warning("DB init skipped: %s", _e)
+
 BASE = os.path.dirname(__file__)
 
 
