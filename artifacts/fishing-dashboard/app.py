@@ -32,7 +32,7 @@ def index():
     return send_from_directory(os.path.join(BASE, "static"), "index.html")
 
 
-@app.route("/api/flows")
+@app.route("/fish/flows")
 def api_flows():
     try:
         from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking, build_river_summary
@@ -45,7 +45,7 @@ def api_flows():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/passage")
+@app.route("/fish/passage")
 def api_passage():
     try:
         from fish_passage import fetch_bonneville_passage, get_run_timing_calendar, FISH_ICONS, SPECIES_NOTES
@@ -57,7 +57,7 @@ def api_passage():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/weather")
+@app.route("/fish/weather")
 def api_weather():
     try:
         from weather_fetchers import fetch_nws_weather
@@ -68,7 +68,7 @@ def api_weather():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/coastal")
+@app.route("/fish/coastal")
 def api_coastal():
     try:
         from oregon_gov_data import fetch_ndbc_buoys, fetch_noaa_tides
@@ -80,7 +80,7 @@ def api_coastal():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/hatcheries")
+@app.route("/fish/hatcheries")
 def api_hatcheries():
     try:
         from hatcheries import OREGON_HATCHERIES, OREGON_LAKES
@@ -90,7 +90,17 @@ def api_hatcheries():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/location")
+@app.route("/fish/lakes")
+def api_lakes():
+    try:
+        from lake_temps import fetch_lake_temps
+        return jsonify(fetch_lake_temps())
+    except Exception as e:
+        log.error("lakes error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/location")
 def api_location():
     from flask import request as freq
     q = freq.args.get("q", "").strip()
@@ -138,19 +148,21 @@ def api_location():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/refresh", methods=["POST"])
+@app.route("/fish/refresh", methods=["POST"])
 def api_refresh():
     try:
         from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking
         from fish_passage import fetch_bonneville_passage
         from weather_fetchers import fetch_nws_weather
         from oregon_gov_data import fetch_ndbc_buoys, fetch_noaa_tides
+        from lake_temps import fetch_lake_temps
         fetch_usgs_flows.clear()
         fetch_odfw_stocking.clear()
         fetch_bonneville_passage.clear()
         fetch_nws_weather.clear()
         fetch_ndbc_buoys.clear()
         fetch_noaa_tides.clear()
+        fetch_lake_temps.clear()
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

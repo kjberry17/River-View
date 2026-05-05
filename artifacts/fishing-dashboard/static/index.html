@@ -320,6 +320,7 @@ footer a:hover{color:var(--cyan);}
   <button class="tab-btn" onclick="showTab('coastal')">🌊 Coastal</button>
   <button class="tab-btn" onclick="showTab('weather')">🌤️ Weather</button>
   <button class="tab-btn" onclick="showTab('hatcheries')">🏭 Hatcheries</button>
+  <button class="tab-btn" onclick="showTab('lakes')">🏞️ Lakes</button>
   <button class="tab-btn" id="local-tab-btn" onclick="showTab('local')">📍 Local</button>
 </nav>
 
@@ -567,6 +568,30 @@ footer a:hover{color:var(--cyan);}
   </div>
 </div>
 
+<!-- ── LAKES ── -->
+<div id="tab-lakes" class="tab-section fade-in">
+  <div class="section-head">
+    <div>
+      <div class="section-title"><span>🏞️</span> Oregon Lakes &amp; Reservoirs</div>
+      <div class="section-sub">Surface temperatures · Species · Regulations · Best season indicators · 17 waters</div>
+    </div>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-title">🌡️ Lake Surface Temperatures — Live USGS or Seasonal Estimate</div>
+    <div id="lake-temp-chart" class="echart"></div>
+  </div>
+  <div class="filter-bar">
+    <input type="text" id="lake-search" placeholder="Search lake…" oninput="filterLakes()">
+    <select id="lake-region-filter" onchange="filterLakes()">
+      <option value="">All Regions</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);">
+      <input type="checkbox" id="lake-best-season" onchange="filterLakes()" style="accent-color:var(--green)"> 🟢 Best season now only
+    </label>
+  </div>
+  <div id="lake-cards" class="card-grid"></div>
+</div>
+
 </main>
 
 <footer>
@@ -590,9 +615,11 @@ let calendarData = {};
 let weatherData = {};
 let coastalData = {};
 let hatcheryData = {};
+let lakeData = [];
 let map = null;
 let flowChart = null, tempChart = null, passageChart = null, weatherChart = null, buoyChart = null;
 let regionChart = null, tenkaraPie = null, tempDistChart = null, stockingChart = null;
+let lakeChart = null;
 
 const CONDITION_COLORS = {
   good:    '#00ff87',
@@ -622,6 +649,7 @@ function showTab(name) {
   if (name === 'passage' && Object.keys(passageData).length) renderPassageCharts();
   if (name === 'coastal' && Object.keys(coastalData).length) renderBuoyChart();
   if (name === 'weather' && Object.keys(weatherData).length) renderWeatherChart();
+  if (name === 'lakes' && lakeData.length) renderLakeChart();
 }
 
 // ── Fetch helpers ──
@@ -639,12 +667,13 @@ async function loadAll() {
     loadWeather(),
     loadCoastal(),
     loadHatcheries(),
+    loadLakes(),
   ]);
 }
 
 async function loadFlows() {
   try {
-    const data = await apiFetch('/api/flows');
+    const data = await apiFetch('/fish/flows');
     if (data.error) return;
     riverData = Array.isArray(data) ? data : [];
     renderStatsBar();
@@ -658,7 +687,7 @@ async function loadFlows() {
 
 async function loadPassage() {
   try {
-    const data = await apiFetch('/api/passage');
+    const data = await apiFetch('/fish/passage');
     passageData = data.passage || {};
     calendarData = data.calendar || {};
     renderPassageHero();
@@ -669,7 +698,7 @@ async function loadPassage() {
 
 async function loadWeather() {
   try {
-    weatherData = await apiFetch('/api/weather');
+    weatherData = await apiFetch('/fish/weather');
     renderWeatherCards();
     if (document.getElementById('tab-weather').classList.contains('active')) renderWeatherChart();
   } catch(e) { console.error('weather:', e); }
@@ -677,7 +706,7 @@ async function loadWeather() {
 
 async function loadCoastal() {
   try {
-    coastalData = await apiFetch('/api/coastal');
+    coastalData = await apiFetch('/fish/coastal');
     renderBuoyCards();
     renderTideCards();
     if (document.getElementById('tab-coastal').classList.contains('active')) renderBuoyChart();
@@ -686,7 +715,7 @@ async function loadCoastal() {
 
 async function loadHatcheries() {
   try {
-    hatcheryData = await apiFetch('/api/hatcheries');
+    hatcheryData = await apiFetch('/fish/hatcheries');
     renderHatcheries();
     await loadStocking();
   } catch(e) { console.error('hatcheries:', e); }
@@ -694,7 +723,7 @@ async function loadHatcheries() {
 
 async function loadStocking() {
   try {
-    const flows = await apiFetch('/api/flows');
+    const flows = await apiFetch('/fish/flows');
     const stocking = riverData.filter(r => r.is_stocked);
     // Use flows endpoint already cached; show seasonal data from hatcheries endpoint
   } catch(e) {}
@@ -704,7 +733,7 @@ async function refreshAll() {
   const btn = document.getElementById('refresh-btn');
   btn.classList.add('spinning');
   try {
-    await fetch('/api/refresh', { method: 'POST' });
+    await fetch('/fish/refresh', { method: 'POST' });
     await loadAll();
   } finally {
     btn.classList.remove('spinning');
@@ -1322,6 +1351,143 @@ function renderStockingChart(hatcheries) {
   });
 }
 
+// ── Lakes ──
+async function loadLakes() {
+  try {
+    const data = await apiFetch('/fish/lakes');
+    if (data.error) return;
+    lakeData = Array.isArray(data) ? data : [];
+    renderLakeCards(lakeData);
+    populateLakeRegionFilter();
+    if (document.getElementById('tab-lakes').classList.contains('active')) renderLakeChart();
+  } catch(e) { console.error('lakes:', e); }
+}
+
+function populateLakeRegionFilter() {
+  const sel = document.getElementById('lake-region-filter');
+  const regions = [...new Set(lakeData.map(l => l.region))].sort();
+  sel.innerHTML = '<option value="">All Regions</option>' +
+    regions.map(r => `<option value="${r}">${r}</option>`).join('');
+}
+
+function filterLakes() {
+  const q = (document.getElementById('lake-search').value || '').toLowerCase();
+  const region = document.getElementById('lake-region-filter').value;
+  const bestOnly = document.getElementById('lake-best-season').checked;
+  const filtered = lakeData.filter(l => {
+    if (q && !l.name.toLowerCase().includes(q) && !l.region.toLowerCase().includes(q)) return false;
+    if (region && l.region !== region) return false;
+    if (bestOnly && !l.is_best_season) return false;
+    return true;
+  });
+  renderLakeCards(filtered);
+}
+
+function renderLakeCards(list) {
+  const container = document.getElementById('lake-cards');
+  if (!list || !list.length) {
+    container.innerHTML = '<div style="color:var(--text3);padding:40px;text-align:center;">No lakes match your filters.</div>';
+    return;
+  }
+  container.innerHTML = list.map(l => {
+    const cond = l.condition || {};
+    const tempColor = cond.color || '#7da8cc';
+    const seasonBadge = l.is_best_season
+      ? '<span class="pill stocked" style="margin-top:4px;">🟢 Best Season Now</span>'
+      : '<span class="pill" style="background:rgba(61,100,128,.15);color:var(--text3);margin-top:4px;">Off-peak</span>';
+    const sourceBadge = l.temp_source === 'USGS Live'
+      ? `<span style="font-size:9px;color:var(--green);font-weight:600;"><span class="live-dot"></span>USGS Live</span>`
+      : `<span style="font-size:9px;color:var(--text3);">📊 Seasonal Est.</span>`;
+    const species = (l.species || []).map(s => `<span class="pill species">${s}</span>`).join('');
+    const styles = (l.fishing_style || []).slice(0, 2).map(s => `<span class="pill temp" style="background:rgba(165,94,234,.1);color:var(--purple);">${s}</span>`).join('');
+    return `<div class="card" style="border-top: 2px solid ${tempColor}33;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div class="card-river">🏞️ ${l.name}</div>
+          <div class="card-region">${l.region}</div>
+        </div>
+        ${sourceBadge}
+      </div>
+      <div style="font-size:32px;font-weight:800;font-family:var(--mono);color:${tempColor};line-height:1;margin:8px 0 2px;">
+        ${l.temp_f.toFixed(1)}<span style="font-size:14px;font-weight:400;">°F</span>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:2px;">${cond.emoji || ''} ${cond.label || ''}</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:6px;">${cond.fishing || ''}</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px;">
+        📏 ${l.elevation_ft.toLocaleString()} ft elev · 🌊 ${l.depth_ft} ft deep
+      </div>
+      <div class="card-pills">${seasonBadge}</div>
+      <div class="card-pills" style="margin-top:6px;">${species}</div>
+      <div class="card-pills" style="margin-top:4px;">${styles}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:8px;line-height:1.4;border-top:1px solid rgba(0,180,255,.06);padding-top:6px;">
+        ⚖️ ${l.regulations}
+      </div>
+      <div style="font-size:10px;color:var(--text2);margin-top:4px;line-height:1.4;">
+        ${(l.notes || '').substring(0, 90)}${(l.notes||'').length > 90 ? '…' : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderLakeChart() {
+  if (!document.getElementById('lake-temp-chart')) return;
+  if (!lakeChart) lakeChart = echarts.init(document.getElementById('lake-temp-chart'), null, { renderer: 'canvas' });
+  if (!lakeData.length) return;
+
+  const sorted = [...lakeData].sort((a, b) => a.temp_f - b.temp_f);
+  const names = sorted.map(l => l.name.replace(' Reservoir', ' Res.').replace(' Reservoir', ''));
+  const temps = sorted.map(l => l.temp_f);
+  const colors = sorted.map(l => l.condition.color || '#3d6480');
+  const isBest = sorted.map(l => l.is_best_season);
+
+  lakeChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' },
+      formatter: params => {
+        const l = sorted[params[0].dataIndex];
+        return `<b>${l.name}</b><br>
+          🌡️ <span style="color:${l.condition.color}">${l.temp_f.toFixed(1)}°F — ${l.condition.label}</span><br>
+          ${l.condition.fishing}<br>
+          <span style="font-size:10px;color:#7da8cc;">📊 ${l.temp_source} · ${l.elevation_ft.toLocaleString()} ft elev</span>
+          ${l.is_best_season ? '<br><span style="color:#00ff87;">🟢 Best season now</span>' : ''}`;
+      },
+    },
+    grid: { left: '2%', right: '5%', bottom: '18%', top: '8%', containLabel: true },
+    xAxis: {
+      type: 'category', data: names,
+      axisLabel: { color: '#dceeff', fontSize: 9, rotate: 35, interval: 0 },
+      axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } },
+    },
+    yAxis: {
+      type: 'value', name: '°F', nameTextStyle: { color: '#7da8cc' },
+      axisLabel: { color: '#7da8cc', formatter: '{value}°F' },
+      splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } },
+      min: v => Math.floor(v.min - 4),
+    },
+    series: [
+      {
+        type: 'bar',
+        data: temps.map((v, i) => ({
+          value: v,
+          itemStyle: {
+            color: colors[i],
+            borderRadius: [4, 4, 0, 0],
+            opacity: isBest[i] ? 1 : 0.55,
+          },
+        })),
+        barMaxWidth: 28,
+        label: { show: true, position: 'top', color: '#dceeff', fontSize: 9, formatter: p => p.value.toFixed(1) + '°' },
+      },
+      { type: 'line', data: new Array(names.length).fill(50), lineStyle: { color: '#00ff87', type: 'dashed', width: 1 }, symbol: 'none', name: 'Ideal Min (50°F)' },
+      { type: 'line', data: new Array(names.length).fill(68), lineStyle: { color: '#ff9f43', type: 'dashed', width: 1 }, symbol: 'none', name: 'Ideal Max (68°F)' },
+    ],
+    legend: { data: ['Ideal Min (50°F)', 'Ideal Max (68°F)'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
+  });
+  lakeChart.resize();
+}
+
 // ── Location search ──
 let locationMarker = null;
 let locationResult = null;
@@ -1356,7 +1522,7 @@ async function searchLocation() {
     </div>`;
 
   try {
-    const data = await apiFetch('/api/location?q=' + encodeURIComponent(q));
+    const data = await apiFetch('/fish/location?q=' + encodeURIComponent(q));
     locationResult = data;
     renderLocationReport(data);
     status.textContent = '📍 ' + (data.location.short_name || data.location.name);
