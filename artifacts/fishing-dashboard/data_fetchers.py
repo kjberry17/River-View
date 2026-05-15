@@ -176,7 +176,7 @@ def fetch_usgs_flows():
             "sites": site_ids,
             "parameterCd": "00060,00010,00065,63680,00300,00400,00095",
             "siteStatus": "active",
-        }, timeout=20)
+        }, timeout=12)
         resp.raise_for_status()
         data = resp.json()
         for ts in data.get("value", {}).get("timeSeries", []):
@@ -450,7 +450,7 @@ def fetch_usgs_percentiles():
             "parameterCd": "00060",
             "statReportType": "daily",
             "statTypeCd": "all",
-        }, timeout=20)
+        }, timeout=12)
         resp.raise_for_status()
         data = resp.json()
         for ts in data.get("value", {}).get("timeSeries", []):

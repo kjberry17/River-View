@@ -15,18 +15,27 @@ except ImportError:
         _DDG_AVAILABLE = False
         DDGS = None
 
+DDG_RATE_DELAY = 1.5  # seconds between DDG queries to avoid rate limiting
+
 
 @ttl_cache(ttl=1800)
-def ddg_search(query, max_results=8):
+def ddg_search(query, max_results=8, retries=2):
     if not _DDG_AVAILABLE:
         return {"error": "DuckDuckGo search unavailable — install ddgs: pip install ddgs", "results": []}
 
-    try:
-        with DDGS() as ddg:
-            results = list(ddg.text(query, max_results=max_results))
-        return {"success": True, "count": len(results), "results": results}
-    except Exception as e:
-        return {"error": str(e)[:200], "results": []}
+    last_err = ""
+    for attempt in range(retries + 1):
+        try:
+            with DDGS() as ddg:
+                results = list(ddg.text(query, max_results=max_results))
+            return {"success": True, "count": len(results), "results": results}
+        except Exception as e:
+            last_err = str(e)[:200]
+            if attempt < retries:
+                time.sleep(1.5 * (attempt + 1))
+            continue
+
+    return {"error": last_err or "DDG search failed after retries", "results": []}
 
 
 @ttl_cache(ttl=1800)
@@ -105,7 +114,9 @@ def search_fishing_reports_osint(zone_name=None, species=None):
     queries.append("site:northwestfishingreports.com Oregon")
 
     all_results = []
-    for q in queries:
+    for i, q in enumerate(queries):
+        if i > 0:
+            time.sleep(DDG_RATE_DELAY)
         r = ddg_search(q, max_results=3)
         if r.get("results"):
             for item in r["results"]:

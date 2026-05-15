@@ -796,6 +796,7 @@ def chat_with_buddy(
                 tools=TOOLS,
                 tool_choice="auto",
                 max_tokens=2000,
+                timeout=60,
             )
             choice = response.choices[0]
             msg = choice.message
@@ -835,6 +836,7 @@ def chat_with_buddy(
                     model=FREE_FALLBACK,
                     messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_message}],
                     max_tokens=800,
+                    timeout=30,
                 )
                 return resp2.choices[0].message.content + f"\n\n*(Fell back to free model — {model} requires credits)*", []
             except Exception as e2:
@@ -910,6 +912,7 @@ def chat_with_buddy_stream(
                 tools=TOOLS,
                 tool_choice="auto",
                 max_tokens=2000,
+                timeout=60,
             )
             choice = response.choices[0]
             msg = choice.message
@@ -966,6 +969,7 @@ def chat_with_buddy_stream(
                     model=FREE_FALLBACK,
                     messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_message}],
                     max_tokens=800,
+                    timeout=30,
                 )
                 content = resp2.choices[0].message.content + f"\n\n*(Fell back to free model — {model} requires credits)*"
                 yield {"type": "response", "content": content}
