@@ -65,7 +65,7 @@ nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24
 .tab-btn.active{color:var(--cyan);border-bottom-color:var(--cyan);background:rgba(0,212,255,.06);}
 
 /* ── Main Layout ── */
-main{padding:20px 24px 40px;}
+main{padding:20px 24px 40px;overflow-x:hidden;min-width:0;}
 .tab-section{display:none;}
 .tab-section.active{display:block;}
 
@@ -107,7 +107,7 @@ main{padding:20px 24px 40px;}
 .card-meta{font-size:10px;color:var(--text3);margin-top:8px;line-height:1.5;}
 
 /* ── ECharts containers ── */
-.chart-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;}
+.chart-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;min-width:0;overflow:hidden;}
 .chart-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:12px;display:flex;align-items:center;gap:8px;}
 .echart{width:100%;min-height:320px;}
 .echart-tall{width:100%;min-height:480px;}
@@ -120,7 +120,8 @@ main{padding:20px 24px 40px;}
 /* ── Two-col ── */
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
-@media(max-width:900px){.two-col,.three-col{grid-template-columns:1fr;}}
+@media(max-width:900px){.three-col{grid-template-columns:1fr;}}
+@media(max-width:768px){.two-col{grid-template-columns:1fr;}}
 
 /* ── Weather cards ── */
 .weather-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
@@ -155,15 +156,16 @@ main{padding:20px 24px 40px;}
 
 /* ── Filter bar ── */
 .filter-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center;}
-.filter-bar input,.filter-bar select{background:var(--card);border:1px solid var(--border);color:var(--text);padding:7px 12px;border-radius:8px;font-size:12px;font-family:'Inter',sans-serif;outline:none;}
+.filter-bar input,.filter-bar select{background:var(--card);border:1px solid var(--border);color:var(--text);padding:7px 12px;border-radius:8px;font-size:12px;font-family:'Inter',sans-serif;outline:none;min-width:0;flex:1 1 140px;max-width:100%;}
 .filter-bar input:focus,.filter-bar select:focus{border-color:var(--border2);}
 .filter-label{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
 
 /* ── Stocking table ── */
 .data-table{width:100%;border-collapse:collapse;font-size:12px;}
-.data-table th{background:rgba(0,180,255,.08);color:var(--text2);font-weight:600;padding:9px 12px;text-align:left;border-bottom:1px solid var(--border);}
+.data-table th{background:rgba(0,180,255,.08);color:var(--text2);font-weight:600;padding:9px 12px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;}
 .data-table td{padding:9px 12px;border-bottom:1px solid rgba(0,180,255,.05);color:var(--text);}
 .data-table tr:hover td{background:rgba(0,180,255,.04);}
+.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
 
 /* ── Legend ── */
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);padding:10px 0;margin-bottom:14px;}
@@ -196,12 +198,12 @@ main{padding:20px 24px 40px;}
   background:linear-gradient(135deg,#071a30 0%,#091e38 100%);
   border-bottom:1px solid var(--border);
   padding:10px 24px;
-  display:flex;align-items:center;gap:10px;
-  position:sticky;top:60px;z-index:90;
+  display:flex;align-items:center;gap:10px;flex-wrap:nowrap;
+  position:sticky;top:60px;z-index:90;overflow:hidden;
 }
-.loc-input-wrap{flex:1;max-width:420px;display:flex;gap:8px;}
+.loc-input-wrap{flex:1 1 0;min-width:0;display:flex;gap:8px;}
 .loc-input{
-  flex:1;background:rgba(0,180,255,.07);border:1px solid rgba(0,180,255,.22);
+  flex:1 1 0;min-width:0;background:rgba(0,180,255,.07);border:1px solid rgba(0,180,255,.22);
   color:var(--text);padding:8px 14px;border-radius:8px;font-size:13px;
   font-family:'Inter',sans-serif;outline:none;transition:.2s;
 }
@@ -299,7 +301,7 @@ footer a:hover{color:var(--cyan);}
 /* ── Fisher Chat ── */
 .buddy-layout{display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:500px;}
 .buddy-top-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);}
-.buddy-model-select{background:var(--card);border:1px solid var(--border2);color:var(--text);padding:7px 12px;border-radius:8px;font-size:12px;font-family:'Inter',sans-serif;outline:none;flex:1;min-width:200px;}
+.buddy-model-select{background:var(--card);border:1px solid var(--border2);color:var(--text);padding:7px 12px;border-radius:8px;font-size:12px;font-family:'Inter',sans-serif;outline:none;flex:1 1 160px;min-width:0;max-width:100%;}
 .buddy-model-select:focus{border-color:var(--cyan);}
 .buddy-clear-btn{background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.3);color:#ff4757;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:.2s;}
 .buddy-clear-btn:hover{background:rgba(255,71,87,.2);}
@@ -370,6 +372,18 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
 .buddy-send-btn:disabled{opacity:.4;cursor:not-allowed;}
 
 /* ── Mobile-first responsive ── */
+@media(max-width:768px){
+  header{padding:0 16px;gap:12px;}
+  .stats-bar{gap:10px;}
+  .stat-pill{padding:3px 9px;}
+  main{padding:16px 16px 32px;}
+  .card-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));}
+  .loc-strip{padding:8px 16px;gap:8px;}
+  .loc-status{display:none;}
+  .buddy-top-bar{flex-wrap:wrap;gap:8px;}
+  .buddy-model-select{order:3;width:100%;}
+  .buddy-clear-btn,.buddy-export-btn{flex-shrink:0;}
+}
 @media(max-width:600px){
   header{padding:0 12px;gap:10px;height:52px;}
   .logo-text{font-size:13px;}
@@ -380,7 +394,6 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
   .tab-btn{padding:10px 10px;font-size:11px;}
   .loc-strip{padding:8px 12px;gap:7px;}
   .loc-input-wrap{flex:1;}
-  .loc-status{display:none;}
   main{padding:14px 12px 30px;}
   #map{height:360px;}
   .card-grid{grid-template-columns:1fr 1fr;}
@@ -388,15 +401,17 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
   .echart-tall{min-height:320px;}
   .buddy-layout{height:calc(100vh - 180px);}
   .buddy-bubble{max-width:94%;}
-  .buddy-model-select{font-size:11px;}
   .section-title{font-size:15px;}
-  .filter-bar{gap:7px;}
-  .filter-bar input,.filter-bar select{font-size:11px;padding:6px 9px;}
   .chart-wrap{padding:12px;}
+  .passage-hero{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));}
+  .weather-grid{grid-template-columns:1fr;}
+  .hatchery-grid{grid-template-columns:1fr;}
+  .section-head{flex-direction:column;align-items:flex-start;gap:8px;}
 }
 @media(max-width:400px){
   .card-grid{grid-template-columns:1fr;}
   .tab-btn{padding:9px 8px;font-size:10px;}
+  .buddy-top-bar{gap:6px;}
 }
 </style>
 </head>
@@ -531,7 +546,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
     </div>
     <div class="chart-wrap">
       <div class="chart-title">🐟 Temperature Activity Guide</div>
-      <div style="padding:8px 0;">
+      <div style="padding:8px 0;overflow-x:auto;-webkit-overflow-scrolling:touch;">
         <table class="data-table">
           <tr><th>Range</th><th>Fish Activity</th><th>Strategy</th></tr>
           <tr><td>&lt;35°F</td><td>🥶 Very Sluggish</td><td>Deep slow nymphs, warmest hours</td></tr>
@@ -2103,7 +2118,7 @@ function setLocationMapMarker(lat, lon, label) {
 
 // ── Window resize ──
 window.addEventListener('resize', () => {
-  [flowChart, tempChart, passageChart, weatherChart, buoyChart, regionChart, tenkaraPie, tempDistChart, stockingChart]
+  [flowChart, tempChart, passageChart, weatherChart, buoyChart, regionChart, tenkaraPie, tempDistChart, stockingChart, levelsFlowChart, lakeChart]
     .filter(Boolean).forEach(c => c.resize());
   if (map) map.invalidateSize();
 });
