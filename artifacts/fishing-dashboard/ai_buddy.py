@@ -165,7 +165,7 @@ TOOLS = [
         "function": {
             "name": "web_search",
             "description": (
-                "Search the internet via TinyFish for current fishing reports, hatch reports, ODFW news, "
+                "Search the internet via DuckDuckGo for current fishing reports, hatch reports, ODFW news, "
                 "emergency closures, regulation changes, trip reports, river conditions from fishing forums, "
                 "or any live information not available from local data. "
                 "Use for: fishing reports, hatch activity, regulation updates, closures, forum trip reports, "
@@ -540,25 +540,21 @@ def _execute_web_search(args: dict) -> str:
         query = f"Oregon fishing {query}"
 
     try:
-        from web_tools import tinyfish_search
-        result = tinyfish_search(query, max_results=num_results)
+        from web_tools import ddg_search
+        result = ddg_search(query, max_results=num_results)
         if result.get("error"):
             return f"Web search error: {result.get('error')}"
 
-        data = result.get("data")
-        if not data:
-            return f"No results found for: '{query}'"
-
-        results_list = data if isinstance(data, list) else data.get("results", [])
+        results_list = result.get("results", [])
         if not results_list:
             return f"No results found for: '{query}'"
 
         lines = [f"Web search: **{query}**", f"Found {len(results_list)} results:"]
         for i, r in enumerate(results_list, 1):
             if isinstance(r, dict):
-                title = r.get("title", r.get("snippet", "No title"))[:150]
-                url = r.get("url", r.get("link", ""))
-                snippet = r.get("snippet", r.get("body", ""))[:300]
+                title = r.get("title", "")[:150]
+                url = r.get("href", r.get("link", ""))
+                snippet = r.get("body", "")[:300]
                 lines.append(f"**{i}. {title}**")
                 if url:
                     lines.append(f"   {url}")
@@ -566,7 +562,7 @@ def _execute_web_search(args: dict) -> str:
                     lines.append(f"   {snippet}")
                 lines.append("")
 
-        lines.append(f"_Search via TinyFish · {context} context_")
+        lines.append(f"_Search via DuckDuckGo · {context} context_")
         return "\n".join(lines)
 
     except Exception as e:
@@ -586,14 +582,19 @@ def _execute_snowpack(args: dict) -> str:
             peak = data.get("peak_swe_in", 0)
             pct = data.get("pct_of_peak", 0)
             impact = data.get("fishing_impact", {}).get("label", "")
-            lines.append(f"❄️ {basin}: {swe:.1f}\" SWE (peak was {peak:.1f}\", {pct:.0f}%) — {impact}")
+            swe_str = f"{swe:.1f}" if isinstance(swe, (int, float)) else str(swe)
+            peak_str = f"{peak:.1f}" if isinstance(peak, (int, float)) else str(peak)
+            pct_str = f"{pct:.0f}" if isinstance(pct, (int, float)) else str(pct)
+            lines.append(f"❄️ {basin}: {swe_str}\" SWE (peak was {peak_str}\", {pct_str}%) — {impact}")
         if not summary.get("basins"):
             for station, data in summary.get("stations", {}).items():
                 if basin_filter and basin_filter not in station.lower():
                     continue
                 swe = data.get("swe_inches", 0)
                 elev = data.get("elevation_ft", 0)
-                lines.append(f"❄️ {station} ({elev}ft): {swe:.1f}\" SWE | {data.get('note', '')}")
+                swe_str2 = f"{swe:.1f}" if isinstance(swe, (int, float)) else str(swe)
+                elev_str = f"{elev}" if isinstance(elev, (int, float)) else str(elev)
+                lines.append(f"❄️ {station} ({elev_str}ft): {swe_str2}\" SWE | {data.get('note', '')}")
         return "\n".join(lines)
     except Exception as e:
         return f"Snowpack error: {e}"
@@ -719,8 +720,9 @@ def _execute_dam_passage(args: dict) -> str:
             for species, data in species_data.items():
                 if isinstance(data, dict):
                     rec = data.get("recent", "?")
+                    rec_str = f"{rec:,}" if isinstance(rec, (int, float)) else str(rec) if rec else "?"
                     note = data.get("note", "")
-                    lines.append(f"  {species}: {rec:,}/day — {note}")
+                    lines.append(f"  {species}: {rec_str}/day — {note}")
         return "\n".join(lines)
     except Exception as e:
         return f"Dam passage error: {e}"
@@ -799,13 +801,18 @@ def chat_with_buddy(
                 })
                 for tc in msg.tool_calls:
                     args = json.loads(tc.function.arguments)
-                    # Show a visual status pill for each tool call
                     _show_tool_status(tc.function.name, args)
-                    result = execute_tool(tc.function.name, args, live_data, db_module)
+                    try:
+                        result = execute_tool(tc.function.name, args, live_data, db_module)
+                    except Exception as tool_err:
+                        result = f"Tool '{tc.function.name}' error: {tool_err}"
                     if tc.function.name == "update_wiki":
-                        parsed = json.loads(result)
-                        if parsed.get("proposed"):
-                            pending_wiki_proposals.append(parsed)
+                        try:
+                            parsed = json.loads(result)
+                            if parsed.get("proposed"):
+                                pending_wiki_proposals.append(parsed)
+                        except Exception:
+                            pass
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
             else:
                 return msg.content or "No response generated.", pending_wiki_proposals

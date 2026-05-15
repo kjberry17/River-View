@@ -1,72 +1,32 @@
-import subprocess
 import json
 import time
 import re
 from datetime import datetime, timedelta
 from cache_utils import ttl_cache
 
-TIMEOUT_SHORT = 12
-TIMEOUT_MEDIUM = 25
-TIMEOUT_LONG = 45
-TINYFISH_BIN = "/opt/homebrew/bin/tinyfish"
+try:
+    from ddgs import DDGS
+    _DDG_AVAILABLE = True
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS
+        _DDG_AVAILABLE = True
+    except ImportError:
+        _DDG_AVAILABLE = False
+        DDGS = None
 
 
-def _run_tinyfish(args, timeout=TIMEOUT_MEDIUM):
+@ttl_cache(ttl=1800)
+def ddg_search(query, max_results=8):
+    if not _DDG_AVAILABLE:
+        return {"error": "DuckDuckGo search unavailable — install ddgs: pip install ddgs", "results": []}
 
     try:
-        result = subprocess.run(
-            args, capture_output=True, text=True, timeout=timeout,
-            env={**__import__("os").environ, "CI": "true", "NO_COLOR": "true"},
-        )
-        stdout = (result.stdout or "").strip()
-        stderr = (result.stderr or "").strip()
-
-        if result.returncode != 0:
-            return {"error": f"exit={result.returncode}", "stderr": stderr[:300]}
-
-        try:
-            data = json.loads(stdout)
-            return {"success": True, "data": data, "raw": stdout}
-        except json.JSONDecodeError:
-            return {"success": True, "text": stdout}
-
-    except subprocess.TimeoutExpired:
-        return {"error": "timeout", "stderr": ""}
-    except FileNotFoundError:
-        return {"error": "tinyfish not found at " + TINYFISH_BIN, "stderr": ""}
+        with DDGS() as ddg:
+            results = list(ddg.text(query, max_results=max_results))
+        return {"success": True, "count": len(results), "results": results}
     except Exception as e:
-        return {"error": str(e)[:120], "stderr": ""}
-
-
-@ttl_cache(ttl=7200)
-def tinyfish_search(query, max_results=8, domain_filter=None):
-    args = [
-        TINYFISH_BIN, "search", f"'{query}'",
-        "--max-results", str(max_results),
-    ]
-    if domain_filter:
-        args.extend(["--domain", domain_filter])
-    return _run_tinyfish(args, timeout=TIMEOUT_SHORT)
-
-
-@ttl_cache(ttl=3600)
-def tinyfish_fetch(url, extract="main"):
-    args = [TINYFISH_BIN, "fetch", url, "--extract", extract]
-    return _run_tinyfish(args, timeout=TIMEOUT_MEDIUM)
-
-
-@ttl_cache(ttl=7200)
-def tinyfish_agent(instruction, url=None, max_steps=5):
-    args = [TINYFISH_BIN, "agent", f"'{instruction}'", "--max-steps", str(max_steps)]
-    if url:
-        args.extend(["--url", url])
-    return _run_tinyfish(args, timeout=TIMEOUT_LONG)
-
-
-@ttl_cache(ttl=7200)
-def search_oregon_fishing(query, domain_filter=None):
-    full_query = f"Oregon fishing {query} 2025 2026"
-    return tinyfish_search(full_query, domain_filter=domain_filter)
+        return {"error": str(e)[:200], "results": []}
 
 
 @ttl_cache(ttl=1800)
@@ -118,51 +78,44 @@ def fetch_reddit_multisub(subreddits=None):
 
 
 @ttl_cache(ttl=7200)
+def search_fishing_reports_for_river(river_name=None, species=None, max_results=5):
+    parts = []
+    if river_name:
+        parts.append(river_name)
+    if species:
+        parts.append(species)
+    parts.append("Oregon fishing report 2026")
+    query = " ".join(parts)
+    return ddg_search(query, max_results=max_results)
+
+
+@ttl_cache(ttl=7200)
 def search_fishing_reports_osint(zone_name=None, species=None):
     queries = []
-    if zone_name and species:
-        queries.append(f"{zone_name} {species} fishing report")
-    elif zone_name:
-        queries.append(f"{zone_name} fishing report 2025")
-    elif species:
-        queries.append(f"Oregon {species} fishing report")
 
-    queries.append(("site:ifish.net fishing report Oregon", "ifish.net"))
-    queries.append(("site:northwestfishingreports.com Oregon", None))
-    queries.append(("Oregon fishing conditions 2025 OR fishing report", None))
+    if zone_name and species:
+        queries.append(f"{zone_name} {species} fishing report Oregon")
+    elif zone_name:
+        queries.append(f"{zone_name} fishing report Oregon 2026")
+    elif species:
+        queries.append(f"Oregon {species} fishing report 2026")
+
+    queries.append("Oregon fishing conditions report 2026")
+    queries.append("site:ifish.net Oregon fishing report")
+    queries.append("site:northwestfishingreports.com Oregon")
 
     all_results = []
-    for query_spec in queries:
-        if isinstance(query_spec, tuple):
-            q, domain = query_spec
-        else:
-            q, domain = query_spec, None
-
-        r = tinyfish_search(q, max_results=3, domain_filter=domain)
-        if r.get("success") and r.get("data"):
-            items = r["data"] if isinstance(r["data"], list) else r["data"].get("results", [])
-            for item in items:
-                if isinstance(item, dict):
+    for q in queries:
+        r = ddg_search(q, max_results=3)
+        if r.get("results"):
+            for item in r["results"]:
+                if isinstance(item, dict) and item not in all_results:
                     all_results.append(item)
 
     return {"success": True, "results": all_results}
 
 
-@ttl_cache(ttl=21600)
-def scrape_odfw_weekly_report_agent():
-    instruction = (
-        "Go to https://myodfw.com/recreation-report/fishing-report and get this week's fishing report. "
-        "Extract: 1) All zones with current fishing conditions and species being caught. "
-        "2) Any emergency regulations or closures mentioned. "
-        "3) Stocking updates or hatchery releases. "
-        "Return the information as structured data: zone name, conditions summary, "
-        "key species, best techniques, any closures or alerts."
-    )
-    return tinyfish_agent(instruction, url="https://myodfw.com/recreation-report/fishing-report", max_steps=6)
-
-
 def format_reddit_for_ai_buddy(posts):
-
     if not posts:
         return "No recent Reddit posts found about Oregon fishing."
     lines = ["Recent Oregon fishing Reddit posts:"]
@@ -177,23 +130,32 @@ def format_reddit_for_ai_buddy(posts):
 
 
 def extract_relevant_osint(query, max_sources=8):
-
     web_results = search_fishing_reports_osint()
-    reddit_results = fetch_reddit_multisub([query.lower().replace(" ", "")]) if query else []
+    reddit_results = (
+        fetch_reddit_multisub([query.lower().replace(" ", "")])
+        if query
+        else []
+    )
 
     parts = []
     if web_results.get("results"):
-        parts.append("**Web search results:**")
+        parts.append("**Web search results (DuckDuckGo):**")
         for r in web_results["results"][:max_sources]:
             title = r.get("title", r.get("snippet", ""))[:120]
-            url = r.get("url", r.get("link", ""))
+            url = r.get("href", r.get("url", r.get("link", "")))
+            body = r.get("body", "")[:200]
             parts.append(f"- {title}")
             if url:
                 parts.append(f"  {url}")
+            if body:
+                parts.append(f"  {body}")
 
     if reddit_results:
         parts.append("\n**Reddit discussions:**")
         for p in reddit_results[:5]:
-            parts.append(f"- r/{p.get('source_sub', '?')} | {p['title'][:100]} | {p['score']} pts, {p['num_comments']} comments")
+            parts.append(
+                f"- r/{p.get('source_sub', '?')} | {p['title'][:100]} | "
+                f"{p['score']} pts, {p['num_comments']} comments"
+            )
 
     return "\n".join(parts) if parts else "No OSINT data found for this query."
