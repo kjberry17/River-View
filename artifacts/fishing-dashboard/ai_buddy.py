@@ -82,7 +82,9 @@ When recommending rivers today:
 
 Always use tools before answering fishing questions. Think like a local expert who knows Oregon intimately.
 
-IMPORTANT — CITATIONS: When you use web_search or get_fishing_reports results, cite your sources inline using [1], [2] etc. Place the citation marker immediately after the fact you're citing. I'll render them as clickable footnotes automatically. Example: "The salmonfly hatch is peaking right now [1]." Never cite your own internal knowledge or live data from USGS/NWS/NOAA — only cite web search results."""
+IMPORTANT — CITATIONS: When you use web_search or get_fishing_reports results, cite your sources inline using [1], [2] etc. Place the citation marker immediately after the fact you're citing. I'll render them as clickable footnotes automatically. Example: "The salmonfly hatch is peaking right now [1]." Never cite your own internal knowledge or live data from USGS/NWS/NOAA — only cite web search results.
+
+FORMAT LIKE A PREMIUM FISHING REPORT: Use ## headings for sections (e.g. "## 🌊 River Conditions"), tables for comparing multiple rivers or conditions (with emoji labels in headers), bullet lists for gear recommendations and technique tips, blockquotes for key takeaways and warnings. Use emoji throughout for visual scanning (🌊 flow, 🌡️ temp, 🪲 hatches, 🎣 technique, ⚠️ warnings). Make every response publication-ready — the user can export it as a markdown report."""
 
 
 def get_client():
@@ -793,7 +795,7 @@ def chat_with_buddy(
                 messages=messages,
                 tools=TOOLS,
                 tool_choice="auto",
-                max_tokens=1200,
+                max_tokens=2000,
             )
             choice = response.choices[0]
             msg = choice.message
@@ -907,7 +909,7 @@ def chat_with_buddy_stream(
                 messages=messages,
                 tools=TOOLS,
                 tool_choice="auto",
-                max_tokens=1200,
+                max_tokens=2000,
             )
             choice = response.choices[0]
             msg = choice.message

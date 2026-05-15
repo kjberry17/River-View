@@ -347,6 +347,20 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
 .buddy-source-item{font-size:11px;color:var(--text2);margin-bottom:3px;line-height:1.5;}
 .buddy-source-item a{color:var(--cyan);text-decoration:none;word-break:break-all;}
 .buddy-source-item a:hover{text-decoration:underline;}
+.buddy-export-btn{background:rgba(0,255,135,.1);border:1px solid rgba(0,255,135,.3);color:var(--green);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:.2s;}
+.buddy-export-btn:hover{background:rgba(0,255,135,.2);box-shadow:0 0 12px rgba(0,255,135,.15);}
+.buddy-working{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--card);border:1px solid var(--border);border-radius:10px;width:fit-content;margin:4px 0;}
+.buddy-working-pulse{width:8px;height:8px;background:var(--cyan);border-radius:50%;animation:workingPulse 1.4s ease-in-out infinite;}
+@keyframes workingPulse{0%,100%{opacity:0.3;transform:scale(0.8);}50%{opacity:1;transform:scale(1.2);}}
+.buddy-working-text{font-size:11px;color:var(--text2);}
+.buddy-bubble table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;}
+.buddy-bubble th{background:rgba(0,212,255,.08);color:var(--cyan);font-weight:700;text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,212,255,.25);}
+.buddy-bubble td{padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.06);color:var(--text);}
+.buddy-bubble tr:nth-child(even) td{background:rgba(255,255,255,.015);}
+.buddy-bubble blockquote{border-left:3px solid var(--cyan);margin:8px 0;padding:6px 14px;background:rgba(0,212,255,.04);border-radius:0 6px 6px 0;color:var(--text2);font-style:italic;}
+.buddy-bubble hr{border:none;height:1px;background:linear-gradient(90deg,transparent,var(--border2),transparent);margin:12px 0;}
+.buddy-bubble h1,.buddy-bubble h2,.buddy-bubble h3,.buddy-bubble h4{color:var(--cyan);margin:10px 0 4px;line-height:1.3;}
+.buddy-bubble h1{font-size:18px;}.buddy-bubble h2{font-size:15px;}.buddy-bubble h3{font-size:13px;}.buddy-bubble h4{font-size:12px;}
 .buddy-input-area{display:flex;gap:10px;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border);}
 .buddy-textarea{flex:1;background:rgba(0,180,255,.07);border:1px solid rgba(0,180,255,.22);color:var(--text);padding:10px 14px;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;resize:none;min-height:44px;max-height:120px;line-height:1.5;transition:.2s;}
 .buddy-textarea:focus{border-color:var(--cyan);background:rgba(0,180,255,.1);}
@@ -705,6 +719,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
         <option value="⚡ DeepSeek V4 Flash">⚡ DeepSeek V4 Flash</option>
       </select>
       <button class="buddy-clear-btn" onclick="clearChat()">🗑 Clear</button>
+      <button class="buddy-export-btn" onclick="exportReport()" title="Export conversation as Markdown report">📄 Export</button>
     </div>
     <div id="buddy-messages" class="buddy-messages">
       <div class="buddy-welcome">
@@ -1938,6 +1953,27 @@ function removeTypingIndicator() {
   if (el) el.remove();
 }
 
+function showWorkingIndicator() {
+  removeTypingIndicator();
+  removeWorkingIndicator();
+  const container = document.getElementById('buddy-messages');
+  const el = document.createElement('div');
+  el.className = 'buddy-msg assistant';
+  el.id = 'buddy-working-indicator';
+  el.innerHTML = `
+    <div class="buddy-working">
+      <div class="buddy-working-pulse"></div>
+      <span class="buddy-working-text">🎣 The Buddy is working on your request…</span>
+    </div>`;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
+function removeWorkingIndicator() {
+  const el = document.getElementById('buddy-working-indicator');
+  if (el) el.remove();
+}
+
 function appendAssistantMsg(text, sources, wikiProposals) {
   const container = document.getElementById('buddy-messages');
   const el = document.createElement('div');
@@ -2076,14 +2112,15 @@ async function sendChat() {
           const event = JSON.parse(line);
 
           if (event.type === 'tool_start') {
-            removeTypingIndicator();
+            showWorkingIndicator();
             const pill = showToolPill(event.icon, event.label);
             toolPills.push(pill);
           } else if (event.type === 'tool_end') {
-            // mark completed
+            // pill stays, working indicator stays
           } else if (event.type === 'response') {
             toolPills.forEach(p => p.remove());
             toolPills = [];
+            removeWorkingIndicator();
             responseText = event.content || '';
             sources = event.sources || sources;
             wikiProposals = event.wiki_proposals || [];
@@ -2096,6 +2133,7 @@ async function sendChat() {
     }
 
     toolPills.forEach(p => p.remove());
+    removeWorkingIndicator();
     removeTypingIndicator();
 
     if (responseText) {
@@ -2107,6 +2145,7 @@ async function sendChat() {
       appendAssistantMsg('⚠️ No response received.', [], []);
     }
   } catch (e) {
+    removeWorkingIndicator();
     removeTypingIndicator();
     appendAssistantMsg('⚠️ Network error. Please check your connection and try again.', [], []);
   } finally {
@@ -2114,6 +2153,78 @@ async function sendChat() {
     document.getElementById('buddy-send').disabled = false;
     input.focus();
   }
+}
+
+function exportReport() {
+  const container = document.getElementById('buddy-messages');
+  const children = container.children;
+  let userMessages = [];
+  let assistantMessages = [];
+
+  for (const child of children) {
+    if (child.classList.contains('buddy-msg')) {
+      if (child.classList.contains('user')) {
+        const bubble = child.querySelector('.buddy-bubble');
+        if (bubble) userMessages.push(bubble.innerText.trim());
+      } else if (child.classList.contains('assistant') && !child.querySelector('.buddy-tool-pill') && !child.querySelector('.buddy-working') && !child.querySelector('.buddy-typing')) {
+        const bubble = child.querySelector('.buddy-bubble');
+        if (!bubble) continue;
+        const sourceItems = bubble.querySelectorAll('.buddy-source-item');
+        const sources = [];
+        sourceItems.forEach(item => {
+          const link = item.querySelector('a');
+          if (link) sources.push({ title: item.innerText.replace(/^\[\d+\]\s*/, '').trim(), url: link.href });
+        });
+        const sourcesDiv = bubble.querySelector('.buddy-sources');
+        let content = bubble.cloneNode(true);
+        if (sourcesDiv) content.querySelector('.buddy-sources')?.remove();
+        assistantMessages.push({ text: content.innerText.trim().replace(/\n{3,}/g, '\n\n'), sources });
+      }
+    }
+  }
+
+  if (userMessages.length === 0 || assistantMessages.length === 0) {
+    alert('No conversation to export. Ask The Buddy something first!');
+    return;
+  }
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  const fileDate = now.toISOString().slice(0, 10);
+
+  let md = `# 🎣 Oregon Fishing Report\n`;
+  md += `*${dateStr} at ${timeStr}*\n\n`;
+  md += `---\n\n`;
+
+  for (let i = 0; i < userMessages.length; i++) {
+    md += `## 💬 Your Question\n`;
+    md += `> ${userMessages[i]}\n\n`;
+    if (assistantMessages[i]) {
+      md += `## 🎣 The Buddy's Report\n`;
+      md += assistantMessages[i].text + '\n\n';
+      if (assistantMessages[i].sources.length > 0) {
+        md += `### 📚 Sources\n`;
+        assistantMessages[i].sources.forEach((src, idx) => {
+          md += `${idx + 1}. [${src.title}](${src.url})\n`;
+        });
+        md += '\n';
+      }
+      md += `---\n\n`;
+    }
+  }
+
+  md += `*Generated by Oregon OSINT Fishing Dashboard*\n`;
+
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `oregon-fishing-report-${fileDate}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ── Boot ──

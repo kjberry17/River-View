@@ -17,6 +17,9 @@
 # formatting
 - Use tables, bullets, and rich typography for client-facing report output. Confidence: 0.65
 
+# streaming-ui
+- Use a persistent working indicator (not removed on first tool event) that stays visible throughout streaming agent processing between tool calls. Confidence: 0.70
+
 # workflow
 - Commit current changes as a git restore point before implementing major feature changes. Confidence: 0.65
 
