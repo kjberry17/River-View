@@ -1,5 +1,8 @@
 import os
 import logging
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 
@@ -154,6 +157,161 @@ def api_location():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/fish/water-quality")
+def api_water_quality():
+    try:
+        from data_fetchers import fetch_usgs_flows
+        rivers = fetch_usgs_flows()
+        return jsonify({"rivers": rivers})
+    except Exception as e:
+        log.error("water-quality error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/flow-stats")
+def api_flow_stats():
+    try:
+        from data_fetchers import fetch_usgs_percentiles
+        stats = fetch_usgs_percentiles()
+        return jsonify(stats)
+    except Exception as e:
+        log.error("flow-stats error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/snowpack")
+def api_snowpack():
+    try:
+        from snowpack_fetcher import fetch_snotel_summary
+        return jsonify(fetch_snotel_summary())
+    except Exception as e:
+        log.error("snowpack error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/dams/all")
+def api_all_dams():
+    try:
+        from fish_passage import fetch_all_dams_passage
+        return jsonify(fetch_all_dams_passage())
+    except Exception as e:
+        log.error("dams error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/drought")
+def api_drought():
+    try:
+        from drought_fetcher import fetch_drought_by_region
+        return jsonify(fetch_drought_by_region())
+    except Exception as e:
+        log.error("drought error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/marine")
+def api_marine():
+    try:
+        from weather_fetchers import fetch_nws_marine
+        return jsonify(fetch_nws_marine())
+    except Exception as e:
+        log.error("marine error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/epa-wqp")
+def api_epa_wqp():
+    try:
+        from water_quality_fetcher import fetch_epa_wqp_multi_param
+        river = __import__("flask").request.args.get("river")
+        return jsonify(fetch_epa_wqp_multi_param(river_name=river))
+    except Exception as e:
+        log.error("epa-wqp error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/aqi")
+def api_aqi():
+    try:
+        from air_quality_fetcher import get_fishing_air_quality_summary
+        return jsonify(get_fishing_air_quality_summary())
+    except Exception as e:
+        log.error("aqi error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/wildlife")
+def api_wildlife():
+    try:
+        from inaturalist_fetcher import fetch_inaturalist_summary
+        return jsonify(fetch_inaturalist_summary())
+    except Exception as e:
+        log.error("wildlife error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/reports")
+def api_reports():
+    try:
+        from web_tools import extract_relevant_osint
+        query = __import__("flask").request.args.get("q", "")
+        return jsonify({"reports": extract_relevant_osint(query)})
+    except Exception as e:
+        log.error("reports error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/reddit")
+def api_reddit():
+    try:
+        from web_tools import fetch_reddit_multisub
+        return jsonify({"posts": fetch_reddit_multisub()})
+    except Exception as e:
+        log.error("reddit error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/search")
+def api_search():
+    try:
+        from web_tools import search_fishing_reports_osint
+        query = __import__("flask").request.args.get("q", "")
+        return jsonify(search_fishing_reports_osint(zone_name=query))
+    except Exception as e:
+        log.error("search error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/fish/conditions")
+def api_conditions():
+    try:
+        from data_fetchers import fetch_usgs_flows, fetch_usgs_percentiles
+        from weather_fetchers import fetch_nws_weather
+        from oregon_gov_data import fetch_ndbc_buoys, fetch_noaa_tides
+        from snowpack_fetcher import fetch_snotel_summary
+        from drought_fetcher import fetch_drought_by_region
+        from concurrent.futures import ThreadPoolExecutor
+        results = {}
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            f_flows = ex.submit(fetch_usgs_flows)
+            f_stats = ex.submit(fetch_usgs_percentiles)
+            f_weather = ex.submit(fetch_nws_weather)
+            f_buoys = ex.submit(fetch_ndbc_buoys)
+            f_tides = ex.submit(fetch_noaa_tides)
+            f_snow = ex.submit(fetch_snotel_summary)
+            results["rivers"] = f_flows.result()
+            results["flow_stats"] = f_stats.result()
+            results["weather"] = f_weather.result()
+            results["buoys"] = f_buoys.result()
+            results["tides"] = f_tides.result()
+            results["snowpack"] = f_snow.result()
+        results["drought"] = fetch_drought_by_region()
+        return jsonify(results)
+    except Exception as e:
+        log.error("conditions error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/fish/chat", methods=["POST"])
 def api_chat():
     from flask import request as freq
@@ -161,6 +319,7 @@ def api_chat():
     user_message = (body.get("message") or "").strip()
     history = body.get("history") or []
     model_key = body.get("model") or "⚡ DeepSeek V4 Flash"
+    use_stream = body.get("stream", False)
 
     if not user_message:
         return jsonify({"error": "No message provided"}), 400
@@ -190,6 +349,22 @@ def api_chat():
             live_data["_passage"] = {}
 
         live_data["_stocking"] = [r for r in river_summary if r.get("is_stocked")]
+
+        if use_stream:
+            from ai_buddy import chat_with_buddy_stream
+            import json as _json
+
+            def generate():
+                for event in chat_with_buddy_stream(
+                    user_message=user_message,
+                    conversation_history=history,
+                    live_data=live_data,
+                    db_module=db,
+                    model_key=model_key,
+                ):
+                    yield _json.dumps(event) + "\n"
+            from flask import Response
+            return Response(generate(), mimetype="application/x-ndjson")
 
         from ai_buddy import chat_with_buddy
         response, wiki_proposals = chat_with_buddy(
@@ -228,23 +403,74 @@ def api_wiki_save():
 @app.route("/fish/refresh", methods=["POST"])
 def api_refresh():
     try:
-        from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking
-        from fish_passage import fetch_bonneville_passage
-        from weather_fetchers import fetch_nws_weather
+        from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking, fetch_usgs_percentiles
+        from fish_passage import fetch_bonneville_passage, fetch_all_dams_passage
+        from weather_fetchers import fetch_nws_weather, fetch_nws_marine
         from oregon_gov_data import fetch_ndbc_buoys, fetch_noaa_tides
         from lake_temps import fetch_lake_temps
+        from snowpack_fetcher import fetch_snotel_summary, fetch_snotel_data
+        from drought_fetcher import fetch_drought_monitor, fetch_drought_by_region
+        from water_quality_fetcher import fetch_epa_wqp_multi_param
+        from air_quality_fetcher import fetch_airnow_aqi, get_fishing_air_quality_summary
+        from inaturalist_fetcher import fetch_inaturalist_summary, fetch_recent_fish_obs
+        from web_tools import fetch_reddit_multisub, search_fishing_reports_osint
+        from concurrent.futures import ThreadPoolExecutor
+
         fetch_usgs_flows.clear()
         fetch_odfw_stocking.clear()
+        fetch_usgs_percentiles.clear()
         fetch_bonneville_passage.clear()
+        fetch_all_dams_passage.clear()
         fetch_nws_weather.clear()
+        fetch_nws_marine.clear()
         fetch_ndbc_buoys.clear()
         fetch_noaa_tides.clear()
         fetch_lake_temps.clear()
-        return jsonify({"ok": True})
+        fetch_snotel_summary.clear()
+        fetch_snotel_data.clear()
+        fetch_drought_monitor.clear()
+        fetch_drought_by_region.clear()
+        fetch_epa_wqp_multi_param.clear()
+        fetch_airnow_aqi.clear()
+        get_fishing_air_quality_summary.clear()
+        fetch_inaturalist_summary.clear()
+        fetch_recent_fish_obs.clear()
+        fetch_reddit_multisub.clear()
+        search_fishing_reports_osint.clear()
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            ex.submit(fetch_usgs_flows)
+            ex.submit(fetch_usgs_percentiles)
+            ex.submit(fetch_bonneville_passage)
+            ex.submit(fetch_nws_weather)
+            ex.submit(fetch_nws_marine)
+            ex.submit(fetch_ndbc_buoys)
+            ex.submit(fetch_noaa_tides)
+            ex.submit(fetch_lake_temps)
+            ex.submit(fetch_snotel_summary)
+            ex.submit(fetch_drought_by_region)
+            ex.submit(get_fishing_air_quality_summary)
+            ex.submit(fetch_inaturalist_summary)
+
+        return jsonify({"ok": True, "message": "All caches cleared and refreshing"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
+    import socket
+
     port = int(os.environ.get("PORT", 5000))
+    max_tries = 20
+
+    for offset in range(max_tries):
+        attempt = port + offset
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("0.0.0.0", attempt)) != 0:
+                port = attempt
+                break
+    else:
+        log.warning("no open ports found in range %d–%d", port, port + max_tries - 1)
+
+    log.info("starting on http://0.0.0.0:%d", port)
     app.run(host="0.0.0.0", port=port, debug=False)

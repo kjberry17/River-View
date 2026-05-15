@@ -1,40 +1,49 @@
 import os
 import json
-import streamlit as st
-from openai import OpenAI, PermissionDeniedError, RateLimitError, APIStatusError
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import os
 
-# DuckDuckGo search — free, no API key required
 try:
-    from ddgs import DDGS as _DDGS
-    _SEARCH_LIB = "ddgs"
+    import streamlit as st
 except ImportError:
-    try:
-        from duckduckgo_search import DDGS as _DDGS
-        _SEARCH_LIB = "duckduckgo_search"
-    except ImportError:
-        _DDGS = None
-        _SEARCH_LIB = None
+    st = None
+
+from openai import OpenAI, PermissionDeniedError, RateLimitError, APIStatusError
+
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+except ImportError:
+    def retry(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+    stop_after_attempt = lambda n: n
+    wait_exponential = lambda **kw: 0
+    retry_if_exception_type = lambda *exs: False
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 MODELS = {
     "🆓 GPT-OSS 120B (Free)": "openai/gpt-oss-120b:free",
     "🆓 Nemotron Super 120B (Free)": "nvidia/nemotron-3-super-120b-a12b:free",
-    "🆓 Gemma 3 27B (Free)": "google/gemma-3-27b-it:free",
+    "🆓 Gemma 2 9B (Free)": "google/gemma-2-9b-it:free",
     "🆓 Llama 3.3 70B (Free)": "meta-llama/llama-3.3-70b-instruct:free",
-    "🆓 Gemma 4 31B (Free)": "google/gemma-4-31b-it:free",
+    "🆓 DeepSeek Chat (Free)": "deepseek/deepseek-chat:free",
     "🆓 MiniMax M2.5 (Free)": "minimax/minimax-m2.5:free",
     "🆓 Qwen3 Coder (Free)": "qwen/qwen3-coder:free",
     "🆓 Gemma 3 12B (Free)": "google/gemma-3-12b-it:free",
-    "🆓 Llama 3.2 3B (Free · Fast)": "meta-llama/llama-3.2-3b-instruct:free",
+    "🆓 Phi-4 Mini (Free)": "microsoft/phi-4-mini-instruct:free",
+    "🆓 Ring 2.6 1T (Free)": "inclusionai/ring-2.6-1t:free",
+    "🆓 GLM-4.5 Air (Free)": "z-ai/glm-4.5-air:free",
+    "🆓 Trinity Large (Free)": "arcee-ai/trinity-large-thinking:free",
+    "🆓 DeepSeek V4 Flash (Free)": "deepseek/deepseek-v4-flash:free",
+    "🆓 Gemma 4 31B (Free)": "google/gemma-4-31b-it:free",
     "✨ Gemini 2.5 Flash": "google/gemini-2.5-flash",
     "⚡ DeepSeek V4 Flash": "deepseek/deepseek-v4-flash",
 }
 
-FREE_FALLBACK = "openai/gpt-oss-120b:free"
+FREE_FALLBACK = "deepseek/deepseek-chat:free"
 
-SYSTEM_PROMPT = """You are a fun, witty, highly experienced Oregon fly and tenkara fishing buddy named "The Buddy".
+SYSTEM_PROMPT = """You are a deeply knowledgeable, seasoned Oregon fly and tenkara fishing guide named "The Fisher".
 
 You have access to:
 - Live USGS river data: flow (CFS), water temperature, gage height (feet), and turbidity/clarity (FNU)
@@ -71,7 +80,11 @@ When recommending rivers today:
 4. Check user's preferred rivers and drive time from home base
 5. Check recent logs for that river
 
-Always use tools before answering fishing questions. Think like a local expert who knows Oregon intimately."""
+Always use tools before answering fishing questions. Think like a local expert who knows Oregon intimately.
+
+IMPORTANT — CITATIONS: When you use web_search or get_fishing_reports results, cite your sources inline using [1], [2] etc. Place the citation marker immediately after the fact you're citing. I'll render them as clickable footnotes automatically. Example: "The salmonfly hatch is peaking right now [1]." Never cite your own internal knowledge or live data from USGS/NWS/NOAA — only cite web search results.
+
+FORMAT LIKE A PREMIUM FISHING REPORT: Use ## headings for sections (e.g. "## 🌊 River Conditions"), tables for comparing multiple rivers or conditions (with emoji labels in headers), bullet lists for gear recommendations and technique tips, blockquotes for key takeaways and warnings. Use emoji throughout for visual scanning (🌊 flow, 🌡️ temp, 🪲 hatches, 🎣 technique, ⚠️ warnings). Make every response publication-ready — the user can export it as a markdown report."""
 
 
 def get_client():
@@ -161,7 +174,7 @@ TOOLS = [
                 "or any live information not available from local data. "
                 "Use for: fishing reports, hatch activity, regulation updates, closures, forum trip reports, "
                 "species run timing news, any question needing current internet data. "
-                "Good sources to target: dfw.state.or.us, nwflyfish.com, westfly.com, oregonlive.com, "
+                "Good sources: dfw.state.or.us, nwflyfish.com, ifish.net, northwestfishingreports.com, "
                 "troutunderground.com, hatchwatch.com, fishingw.com."
             ),
             "parameters": {
@@ -189,6 +202,107 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_snowpack",
+            "description": "Get Oregon mountain snowpack (SWE) data from NRCS SNOTEL stations. Snowpack is the #1 predictor of summer streamflows. Critical for planning summer fishing trips on snowmelt-fed rivers like the Deschutes, McKenzie, Metolius, and Grande Ronde.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "basin": {"type": "string", "description": "Optional basin filter: 'Willamette', 'Deschutes', 'Rogue', 'Grande Ronde', 'Hood River', 'Wallowa'"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_drought",
+            "description": "Get US Drought Monitor data for Oregon regions. Shows current drought severity and fishing impact by region. Drought means low flows, high water temps, and stressed fish.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "region": {"type": "string", "description": "Optional Oregon region: 'Central Oregon', 'Willamette Valley', 'Eastern Oregon', 'Mt. Hood / Columbia Gorge', 'Oregon Coast', 'Southern Oregon', 'Northeast Oregon'"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_air_quality",
+            "description": "Get current Air Quality Index (AQI) for Oregon fishing areas. Critical during wildfire season (Jul–Oct). High AQI means smoke — avoid fishing or limit exertion. Get AIRNOW_API_KEY for live data.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "zone": {"type": "string", "description": "Optional zone: 'Bend', 'Eugene', 'Medford', 'Portland', 'Salem', 'La Grande', 'Hood River', 'Lincoln City', 'Coos Bay', 'Brookings', 'Tillamook'"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_marine_forecast",
+            "description": "Get NOAA marine forecasts and bar-crossing conditions for Oregon coastal zones. Includes Columbia River Bar safety rating, wind, waves, and boating conditions. Essential for boat fishing and bar crossings.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "zone": {"type": "string", "description": "Optional: 'Columbia River Bar', 'North Oregon Coast', 'Central Oregon Coast', 'South Oregon Coast', 'Southernmost Oregon Coast'"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_wildlife_sightings",
+            "description": "Get recent fish and aquatic insect sightings from iNaturalist in Oregon. Shows where species are being observed in the last 7 days. Useful for tracking hatches, fish movements, and ecological activity.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "species_type": {"type": "string", "description": "Optional: 'fish', 'insects', or 'all'"},
+                    "species": {"type": "string", "description": "Optional specific species: 'Rainbow Trout', 'Chinook Salmon', 'Steelhead', 'Caddisflies', 'Mayflies', etc."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_dam_passage",
+            "description": "Get fish passage counts for all major Columbia/Willamette River dams (Bonneville, McNary, John Day, The Dalles, Willamette Falls). Shows daily adult fish counts by species. Critical for tracking salmon/steelhead run timing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dam": {"type": "string", "description": "Optional specific dam: 'Bonneville', 'McNary', 'John Day', 'The Dalles', 'Willamette Falls', or 'all'"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_fishing_reports",
+            "description": "Search for recent fishing reports from OSINT sources: Reddit (r/OregonFishing, r/flyfishing, r/fishing), fishing forums, and web search. Aggregates recent community catch reports and discussion.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "river": {"type": "string", "description": "Optional specific river to search for reports"},
+                    "species": {"type": "string", "description": "Optional target species"},
+                    "include_reddit": {"type": "boolean", "description": "Include Reddit fishing community posts"},
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -198,31 +312,34 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
         river = args.get("river")
         include_logs = args.get("include_logs", True)
         results = []
-        prefs = db_module.get_preferences()
-        if prefs:
-            results.append(
-                f"USER PREFERENCES: Home={prefs.get('home_base')}, "
-                f"Favorites={prefs.get('favorite_rivers')}, "
-                f"Styles={prefs.get('preferred_styles')}, "
-                f"MaxDrive={prefs.get('max_drive_minutes')}min, "
-                f"Gear={prefs.get('gear_notes')}, "
-                f"Wading={prefs.get('wading_comfort')}, C&R={prefs.get('catch_and_release')}"
-            )
-        wiki_entries = db_module.search_wiki(query)
-        for e in wiki_entries:
-            results.append(
-                f"WIKI [{e['entry_type'].upper()}] {e['title']} "
-                f"(river={e['river']}, confidence={e['confidence']}): {e['content'][:400]}"
-            )
-        if include_logs:
-            logs = db_module.get_recent_logs_for_river(river) if river else db_module.get_fishing_logs(limit=10)
-            for log in logs:
+        try:
+            prefs = db_module.get_preferences()
+            if prefs:
                 results.append(
-                    f"LOG {log['trip_date']}: {log['river']} @ {log['spot']} — "
-                    f"{log['fish_caught']} fish, flies={log['flies']}, "
-                    f"conditions={log['conditions']}, notes={log['notes']}"
+                    f"USER PREFERENCES: Home={prefs.get('home_base')}, "
+                    f"Favorites={prefs.get('favorite_rivers')}, "
+                    f"Styles={prefs.get('preferred_styles')}, "
+                    f"MaxDrive={prefs.get('max_drive_minutes')}min, "
+                    f"Gear={prefs.get('gear_notes')}, "
+                    f"Wading={prefs.get('wading_comfort')}, C&R={prefs.get('catch_and_release')}"
                 )
-        return "\n\n".join(results) if results else "No Wiki entries found."
+            wiki_entries = db_module.search_wiki(query)
+            for e in wiki_entries:
+                results.append(
+                    f"WIKI [{e['entry_type'].upper()}] {e['title']} "
+                    f"(river={e['river']}, confidence={e['confidence']}): {e['content'][:400]}"
+                )
+            if include_logs:
+                logs = db_module.get_recent_logs_for_river(river) if river else db_module.get_fishing_logs(limit=10)
+                for log in logs:
+                    results.append(
+                        f"LOG {log['trip_date']}: {log['river']} @ {log['spot']} — "
+                        f"{log['fish_caught']} fish, flies={log['flies']}, "
+                        f"conditions={log['conditions']}, notes={log['notes']}"
+                    )
+        except Exception:
+            results.append("DATABASE NOT CONFIGURED: Set DATABASE_URL for Wiki, preferences, and fishing logs.")
+        return "\n\n".join(results) if results else "No Wiki entries found.", []
 
     elif tool_name == "get_live_data":
         river_filter = (args.get("river") or "").lower()
@@ -309,7 +426,7 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
             lines.append("\n=== USGS GAGE HEIGHT (Stage in Feet) ===")
             lines.extend(stage_rivers)
 
-        return "\n".join(lines)
+        return "\n".join(lines), []
 
     elif tool_name == "update_wiki":
         return json.dumps({
@@ -321,7 +438,7 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
             "tags": args.get("tags", []),
             "confidence": args.get("confidence", "personal"),
             "requires_confirmation": args.get("requires_confirmation", True),
-        })
+        }), []
 
     elif tool_name == "get_hatchery_info":
         from hatcheries import OREGON_HATCHERIES
@@ -340,22 +457,51 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                 f"🏭 {h['name']} ({h['region']}): {', '.join(h['species'])} | "
                 f"River: {h['river_system']} | {h.get('notes', '')}"
             )
-        return "\n".join(results) if results else "No hatcheries found matching criteria."
+        return "\n".join(results) if results else "No hatcheries found matching criteria.", []
 
     elif tool_name == "web_search":
         return _execute_web_search(args)
 
-    return f"Unknown tool: {tool_name}"
+    elif tool_name == "get_snowpack":
+        return _execute_snowpack(args), []
+
+    elif tool_name == "get_drought":
+        return _execute_drought(args), []
+
+    elif tool_name == "get_air_quality":
+        return _execute_air_quality(args), []
+
+    elif tool_name == "get_marine_forecast":
+        return _execute_marine_forecast(args), []
+
+    elif tool_name == "get_wildlife_sightings":
+        return _execute_wildlife(args), []
+
+    elif tool_name == "get_dam_passage":
+        return _execute_dam_passage(args), []
+
+    elif tool_name == "get_fishing_reports":
+        return _execute_fishing_reports(args)
+
+    return f"Unknown tool: {tool_name}", []
 
 
 def _show_tool_status(tool_name: str, args: dict):
-    """Render a subtle inline status pill showing which tool the AI is calling."""
+    if st is None:
+        return
     icons = {
         "query_wiki": "📚",
         "get_live_data": "📡",
         "update_wiki": "✏️",
         "get_hatchery_info": "🏭",
         "web_search": "🔍",
+        "get_snowpack": "❄️",
+        "get_drought": "🌵",
+        "get_air_quality": "💨",
+        "get_marine_forecast": "🌊",
+        "get_wildlife_sightings": "🐟",
+        "get_dam_passage": "🏗️",
+        "get_fishing_reports": "📰",
     }
     labels = {
         "query_wiki": "Reading your Wiki",
@@ -363,6 +509,13 @@ def _show_tool_status(tool_name: str, args: dict):
         "update_wiki": "Preparing Wiki update",
         "get_hatchery_info": "Looking up hatcheries",
         "web_search": f"Searching: {args.get('query', '')[:60]}",
+        "get_snowpack": f"Checking snowpack",
+        "get_drought": f"Checking drought conditions",
+        "get_air_quality": f"Checking air quality",
+        "get_marine_forecast": f"Fetching marine forecast",
+        "get_wildlife_sightings": f"Checking recent wildlife sightings",
+        "get_dam_passage": f"Fetching dam fish counts",
+        "get_fishing_reports": f"Searching fishing reports",
     }
     icon = icons.get(tool_name, "⚙️")
     label = labels.get(tool_name, tool_name)
@@ -377,53 +530,245 @@ def _show_tool_status(tool_name: str, args: dict):
         pass
 
 
-def _execute_web_search(args: dict) -> str:
-    """Run a DuckDuckGo search and return formatted results for the AI."""
-    if _DDGS is None:
-        return "❌ Web search unavailable: ddgs library not installed."
-
+def _execute_web_search(args: dict) -> tuple:
     query = args.get("query", "").strip()
     if not query:
-        return "❌ No search query provided."
+        return "No search query provided.", []
 
     num_results = min(max(int(args.get("num_results", 5)), 2), 8)
     context = args.get("fishing_context", "general")
 
-    # Automatically add Oregon fishing context to queries if not already present
     fishing_keywords = ["fishing", "fish", "hatch", "closure", "ODFW", "river", "stream",
                         "steelhead", "salmon", "trout", "fly", "tenkara", "angling"]
     if not any(kw.lower() in query.lower() for kw in fishing_keywords):
         query = f"Oregon fishing {query}"
 
+    sources = []
     try:
-        with _DDGS() as ddg:
-            raw_results = list(ddg.text(query, max_results=num_results))
+        from web_tools import ddg_search
+        result = ddg_search(query, max_results=num_results)
+        if result.get("error"):
+            return f"Web search error: {result.get('error')}", []
 
-        if not raw_results:
-            return f"🔍 No results found for: '{query}'"
+        results_list = result.get("results", [])
+        if not results_list:
+            return f"No results found for: '{query}'", []
 
-        lines = [f"🔍 Web search: **{query}**", f"Found {len(raw_results)} results:\n"]
-        for i, r in enumerate(raw_results, 1):
-            title = r.get("title", "No title")
-            url = r.get("href", "")
-            body = r.get("body", "")[:300].strip()
-            # Truncate body at sentence boundary for cleaner output
-            if len(body) == 300 and ". " in body[200:]:
-                body = body[:200 + body[200:].rfind(". ") + 1]
-            lines.append(f"**{i}. {title}**")
-            lines.append(f"   🔗 {url}")
-            lines.append(f"   {body}")
-            lines.append("")
+        lines = [f"Web search: **{query}**", f"Found {len(results_list)} results:"]
+        for i, r in enumerate(results_list, 1):
+            if isinstance(r, dict):
+                title = r.get("title", "")[:150]
+                url = r.get("href", r.get("link", ""))
+                snippet = r.get("body", "")[:300]
+                lines.append(f"**{i}. {title}**")
+                if url:
+                    lines.append(f"   {url}")
+                if snippet:
+                    lines.append(f"   {snippet}")
+                lines.append("")
+                if title and url:
+                    sources.append({"title": title, "url": url})
 
-        lines.append(f"_Search performed via DuckDuckGo · {context} context_")
-        return "\n".join(lines)
+        lines.append(f"_Search via DuckDuckGo · {context} context_")
+        return "\n".join(lines), sources
 
     except Exception as e:
-        err = str(e)[:120]
-        return (
-            f"⚠️ Web search encountered an issue: {err}\n"
-            f"This may be a temporary rate limit. Try rephrasing the query or retry in a moment."
-        )
+        return f"Web search error: {str(e)[:120]}", []
+
+
+def _execute_snowpack(args: dict) -> str:
+    basin_filter = (args.get("basin") or "").lower()
+    try:
+        from snowpack_fetcher import fetch_snotel_summary
+        summary = fetch_snotel_summary()
+        lines = ["=== OREGON SNOTEL SNOWPACK (SWE) ==="]
+        for basin, data in summary.get("basins", {}).items():
+            if basin_filter and basin_filter not in basin.lower():
+                continue
+            swe = data.get("current_swe_in", data.get("swe_inches", 0))
+            peak = data.get("peak_swe_in", 0)
+            pct = data.get("pct_of_peak", 0)
+            impact = data.get("fishing_impact", {}).get("label", "")
+            swe_str = f"{swe:.1f}" if isinstance(swe, (int, float)) else str(swe)
+            peak_str = f"{peak:.1f}" if isinstance(peak, (int, float)) else str(peak)
+            pct_str = f"{pct:.0f}" if isinstance(pct, (int, float)) else str(pct)
+            lines.append(f"❄️ {basin}: {swe_str}\" SWE (peak was {peak_str}\", {pct_str}%) — {impact}")
+        if not summary.get("basins"):
+            for station, data in summary.get("stations", {}).items():
+                if basin_filter and basin_filter not in station.lower():
+                    continue
+                swe = data.get("swe_inches", 0)
+                elev = data.get("elevation_ft", 0)
+                swe_str2 = f"{swe:.1f}" if isinstance(swe, (int, float)) else str(swe)
+                elev_str = f"{elev}" if isinstance(elev, (int, float)) else str(elev)
+                lines.append(f"❄️ {station} ({elev_str}ft): {swe_str2}\" SWE | {data.get('note', '')}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Snowpack error: {e}"
+
+
+def _execute_drought(args: dict) -> str:
+    region_filter = (args.get("region") or "").lower()
+    try:
+        from drought_fetcher import fetch_drought_by_region
+        regions = fetch_drought_by_region()
+        lines = ["=== US DROUGHT MONITOR — OREGON FISHING ==="]
+        for region, data in regions.items():
+            if region_filter and region_filter not in region.lower():
+                continue
+            label = data.get("label", {}).get("label", "Unknown")
+            impact = data.get("fishing_impact", {})
+            rivers_list = []
+            for county, cd in data.get("counties", {}).items():
+                rivers_list.append(f"{county}: {cd.get('label',{}).get('label','?')}")
+            lines.append(f"🌵 {region}: {label} — {impact.get('label','')}")
+            lines.append(f"   {impact.get('notes','')}")
+            lines.append(f"   Counties: {', '.join(rivers_list[:3])}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Drought error: {e}"
+
+
+def _execute_air_quality(args: dict) -> str:
+    zone_filter = (args.get("zone") or "").lower()
+    try:
+        from air_quality_fetcher import get_fishing_air_quality_summary
+        summary = get_fishing_air_quality_summary()
+        lines = ["=== OREGON AIR QUALITY (AQI) — FISHING IMPACT ==="]
+        for item in summary:
+            if zone_filter and zone_filter not in item["zone"].lower():
+                continue
+            est_mark = "⚠️ ESTIMATED " if item.get("estimated") else ""
+            lines.append(f"💨 {item['zone']}: {est_mark}AQI {item.get('aqi','?')} — {item['status']}")
+            lines.append(f"   {item['fishing_advice']}")
+            lines.append(f"   Rivers: {', '.join(item.get('rivers', []))}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Air quality error: {e}"
+
+
+def _execute_marine_forecast(args: dict) -> str:
+    zone_filter = (args.get("zone") or "").lower()
+    try:
+        from weather_fetchers import fetch_nws_marine
+        marine = fetch_nws_marine()
+        lines = ["=== OREGON COASTAL MARINE FORECASTS ==="]
+        for zone, data in marine.items():
+            if zone_filter and zone_filter not in zone.lower():
+                continue
+            if data.get("error"):
+                lines.append(f"🌊 {zone}: Error — {data['error'][:80]}")
+                continue
+            bar = data.get("bar_safety", {})
+            boat = data.get("boat_rating", {})
+            lines.append(f"🌊 {zone}: {data.get('temp_f','?')}°F, {data.get('short_forecast','Unknown')}")
+            lines.append(f"   Wind: {data.get('wind_speed','?')} {data.get('wind_dir','')}")
+            lines.append(f"   Bar Safety: {bar.get('label','?')} — {bar.get('notes','')}")
+            lines.append(f"   Boating: {boat.get('label','?')}")
+            lines.append(f"   Rivers: {', '.join(data.get('rivers',[]))}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Marine forecast error: {e}"
+
+
+def _execute_wildlife(args: dict) -> str:
+    species_type = args.get("species_type", "all")
+    species_filter = (args.get("species") or "").lower()
+    try:
+        from inaturalist_fetcher import fetch_inaturalist_summary, fetch_recent_fish_obs, fetch_aquatic_insect_obs
+        lines = ["=== iNATURALIST RECENT OBSERVATIONS — OREGON ==="]
+
+        fish_data = {}
+        if species_type in ("fish", "all"):
+            fish_data = fetch_recent_fish_obs(days_back=7)
+        insect_data = {}
+        if species_type in ("insects", "all"):
+            insect_data = fetch_aquatic_insect_obs(days_back=14)
+
+        if fish_data:
+            lines.append("🐟 RECENT FISH OBSERVATIONS (7 days):")
+            for name, obs in fish_data.items():
+                if species_filter and species_filter not in name.lower():
+                    continue
+                results = obs.get("results", [])
+                if results:
+                    locations = set(r.get("location", "").replace(", Oregon, USA", "").replace(", OR, USA", "")
+                                    for r in results[:5] if r.get("location"))
+                    lines.append(f"  {name}: {len(results)} obs | {', '.join(sorted(locations))}")
+
+        if insect_data:
+            lines.append("\n🪰 RECENT AQUATIC INSECT OBSERVATIONS (14 days):")
+            for name, obs in insect_data.items():
+                if species_filter and species_filter not in name.lower():
+                    continue
+                results = obs.get("results", [])
+                if results:
+                    locations = set(r.get("location", "").replace(", Oregon, USA", "").replace(", OR, USA", "")
+                                    for r in results[:5] if r.get("location"))
+                    lines.append(f"  {name}: {len(results)} obs | {', '.join(sorted(locations))}")
+
+        if not fish_data and not insect_data:
+            lines.append("No recent observations found.")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Wildlife sightings error: {e}"
+
+
+def _execute_dam_passage(args: dict) -> str:
+    dam_filter = (args.get("dam") or "").lower()
+    try:
+        from fish_passage import fetch_all_dams_passage
+        all_dams = fetch_all_dams_passage()
+        lines = ["=== COLUMBIA RIVER DAM FISH PASSAGE (Recent) ==="]
+        for dam, species_data in all_dams.items():
+            if dam_filter and dam_filter not in dam.lower() and dam_filter != "all":
+                continue
+            lines.append(f"🐟 {dam}:")
+            for species, data in species_data.items():
+                if isinstance(data, dict):
+                    rec = data.get("recent", "?")
+                    rec_str = f"{rec:,}" if isinstance(rec, (int, float)) else str(rec) if rec else "?"
+                    note = data.get("note", "")
+                    lines.append(f"  {species}: {rec_str}/day — {note}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Dam passage error: {e}"
+
+
+def _execute_fishing_reports(args: dict) -> tuple:
+    river = args.get("river")
+    species = args.get("species")
+    include_reddit = args.get("include_reddit", True)
+    sources = []
+    try:
+        from web_tools import extract_relevant_osint, fetch_reddit_multisub
+        lines = []
+        query_parts = []
+        if river:
+            query_parts.append(river)
+        if species:
+            query_parts.append(species)
+        if not query_parts:
+            query_parts.append("Oregon fishing")
+
+        query = " ".join(query_parts)
+        osint_result = extract_relevant_osint(query)
+
+        if osint_result and osint_result != "No OSINT data found for this query.":
+            lines.append(osint_result)
+
+        if include_reddit:
+            posts = fetch_reddit_multisub()
+            if posts:
+                lines.append("\n**Reddit Fishing Community:**")
+                for p in posts[:8]:
+                    lines.append(f"r/{p.get('source_sub','?')} | {p['title'][:120]} | {p['score']} pts, {p['num_comments']} comments | u/{p['author']}")
+                    if p.get("permalink"):
+                        sources.append({"title": p.get("title", "")[:120], "url": p["permalink"]})
+
+        return ("\n".join(lines) if lines else "No recent OSINT fishing reports found."), sources
+    except Exception as e:
+        return f"Fishing reports error: {e}", []
 
 
 def chat_with_buddy(
@@ -450,7 +795,8 @@ def chat_with_buddy(
                 messages=messages,
                 tools=TOOLS,
                 tool_choice="auto",
-                max_tokens=1200,
+                max_tokens=2000,
+                timeout=60,
             )
             choice = response.choices[0]
             msg = choice.message
@@ -466,13 +812,18 @@ def chat_with_buddy(
                 })
                 for tc in msg.tool_calls:
                     args = json.loads(tc.function.arguments)
-                    # Show a visual status pill for each tool call
                     _show_tool_status(tc.function.name, args)
-                    result = execute_tool(tc.function.name, args, live_data, db_module)
+                    try:
+                        result, _tool_sources = execute_tool(tc.function.name, args, live_data, db_module)
+                    except Exception as tool_err:
+                        result = f"Tool '{tc.function.name}' error: {tool_err}"
                     if tc.function.name == "update_wiki":
-                        parsed = json.loads(result)
-                        if parsed.get("proposed"):
-                            pending_wiki_proposals.append(parsed)
+                        try:
+                            parsed = json.loads(result)
+                            if parsed.get("proposed"):
+                                pending_wiki_proposals.append(parsed)
+                        except Exception:
+                            pass
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
             else:
                 return msg.content or "No response generated.", pending_wiki_proposals
@@ -485,6 +836,7 @@ def chat_with_buddy(
                     model=FREE_FALLBACK,
                     messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_message}],
                     max_tokens=800,
+                    timeout=30,
                 )
                 return resp2.choices[0].message.content + f"\n\n*(Fell back to free model — {model} requires credits)*", []
             except Exception as e2:
@@ -498,6 +850,146 @@ def chat_with_buddy(
         return f"⚠️ OpenRouter API error ({e.status_code}): {e.message[:200]}", []
 
     except Exception as e:
-        return f"⚠️ The Buddy stumbled: {str(e)[:300]}", []
+        return f"⚠️ The Fisher encountered an issue: {str(e)[:300]}", []
 
     return "I got turned around in the current. Could you rephrase that?", pending_wiki_proposals
+
+
+TOOL_ICONS = {
+    "query_wiki": "📚",
+    "get_live_data": "📡",
+    "update_wiki": "✏️",
+    "get_hatchery_info": "🏭",
+    "web_search": "🔍",
+    "get_snowpack": "❄️",
+    "get_drought": "🌵",
+    "get_air_quality": "💨",
+    "get_marine_forecast": "🌊",
+    "get_wildlife_sightings": "🐟",
+    "get_dam_passage": "🏗️",
+    "get_fishing_reports": "📰",
+}
+
+TOOL_LABELS = {
+    "query_wiki": "Reading your Wiki",
+    "get_live_data": "Fetching live river & ocean data",
+    "update_wiki": "Preparing Wiki update",
+    "get_hatchery_info": "Looking up hatcheries",
+    "web_search": "Searching the web",
+    "get_snowpack": "Checking snowpack",
+    "get_drought": "Checking drought conditions",
+    "get_air_quality": "Checking air quality",
+    "get_marine_forecast": "Fetching marine forecast",
+    "get_wildlife_sightings": "Checking wildlife sightings",
+    "get_dam_passage": "Fetching dam fish counts",
+    "get_fishing_reports": "Searching fishing reports",
+}
+
+
+def chat_with_buddy_stream(
+    user_message: str,
+    conversation_history: list,
+    live_data: dict,
+    db_module,
+    model_key: str = "⚡ DeepSeek V4 Flash",
+):
+    client = get_client()
+    model = MODELS.get(model_key, FREE_FALLBACK)
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(conversation_history[-14:])
+    messages.append({"role": "user", "content": user_message})
+
+    pending_wiki_proposals = []
+    all_sources = []
+    max_iterations = 6
+
+    try:
+        for _ in range(max_iterations):
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+                max_tokens=2000,
+                timeout=60,
+            )
+            choice = response.choices[0]
+            msg = choice.message
+
+            if choice.finish_reason == "tool_calls" and msg.tool_calls:
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                        for tc in msg.tool_calls
+                    ],
+                })
+                for tc in msg.tool_calls:
+                    args = json.loads(tc.function.arguments)
+                    tool_label = TOOL_LABELS.get(tc.function.name, tc.function.name)
+                    tool_icon = TOOL_ICONS.get(tc.function.name, "⚙️")
+                    query_hint = args.get("query", "")[:60] or args.get("river", "")[:60] or ""
+                    label = f"{tool_label}{': ' + query_hint if query_hint else ''}"
+
+                    yield {"type": "tool_start", "tool": tc.function.name, "icon": tool_icon, "label": label}
+
+                    try:
+                        result, tool_sources = execute_tool(tc.function.name, args, live_data, db_module)
+                    except Exception as tool_err:
+                        result = f"Tool '{tc.function.name}' error: {tool_err}"
+                        tool_sources = []
+
+                    for src in tool_sources:
+                        if src not in all_sources:
+                            all_sources.append(src)
+
+                    yield {"type": "tool_end", "tool": tc.function.name, "icon": tool_icon, "label": label}
+
+                    if tc.function.name == "update_wiki":
+                        try:
+                            parsed = json.loads(result)
+                            if parsed.get("proposed"):
+                                pending_wiki_proposals.append(parsed)
+                        except Exception:
+                            pass
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+            else:
+                content = msg.content or "No response generated."
+                yield {"type": "response", "content": content}
+                yield {"type": "done", "sources": all_sources, "wiki_proposals": pending_wiki_proposals}
+                return
+
+    except PermissionDeniedError:
+        if model != FREE_FALLBACK:
+            try:
+                messages[-1]["content"] = user_message
+                resp2 = client.chat.completions.create(
+                    model=FREE_FALLBACK,
+                    messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_message}],
+                    max_tokens=800,
+                    timeout=30,
+                )
+                content = resp2.choices[0].message.content + f"\n\n*(Fell back to free model — {model} requires credits)*"
+                yield {"type": "response", "content": content}
+                yield {"type": "done", "sources": [], "wiki_proposals": []}
+                return
+            except Exception as e2:
+                yield {"type": "response", "content": f"⚠️ AI unavailable: {e2}"}
+                yield {"type": "done", "sources": [], "wiki_proposals": []}
+                return
+        yield {"type": "response", "content": "⚠️ The selected model requires OpenRouter credits. Switch to a 'Free' model in the dropdown."}
+        yield {"type": "done", "sources": [], "wiki_proposals": []}
+
+    except RateLimitError:
+        yield {"type": "response", "content": "⚠️ Rate limit hit. Wait 30 seconds and try again, or switch to a different free model."}
+        yield {"type": "done", "sources": [], "wiki_proposals": []}
+
+    except APIStatusError as e:
+        yield {"type": "response", "content": f"⚠️ OpenRouter API error ({e.status_code}): {e.message[:200]}"}
+        yield {"type": "done", "sources": [], "wiki_proposals": []}
+
+    except Exception as e:
+        yield {"type": "response", "content": f"⚠️ The Fisher encountered an issue: {str(e)[:300]}"}
+        yield {"type": "done", "sources": [], "wiki_proposals": []}
