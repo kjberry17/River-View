@@ -174,7 +174,7 @@ def fetch_usgs_flows():
         resp = requests.get(USGS_API, params={
             "format": "json",
             "sites": site_ids,
-            "parameterCd": "00060,00010,00065,63680",
+            "parameterCd": "00060,00010,00065,63680,00300,00400,00095",
             "siteStatus": "active",
         }, timeout=20)
         resp.raise_for_status()
@@ -208,6 +208,14 @@ def fetch_usgs_flows():
                     elif param_code == "63680":
                         results[river]["turbidity_fnu"] = val
                         results[river]["clarity"] = get_turbidity_label(val)
+                    elif param_code == "00300":
+                        results[river]["dissolved_oxygen_mgl"] = val
+                        results[river]["do_condition"] = get_do_condition(val)
+                    elif param_code == "00400":
+                        results[river]["ph"] = val
+                        results[river]["ph_condition"] = get_ph_condition(val)
+                    elif param_code == "00095":
+                        results[river]["specific_conductance_uscm"] = val
     except Exception as e:
         results["error"] = str(e)
 
@@ -300,6 +308,11 @@ def build_river_summary(flows: dict, stocking: list) -> list:
             "temp_condition": temp_cond,
             "stage_ft": stage_ft,
             "clarity": clarity,
+            "dissolved_oxygen_mgl": flow_data.get("dissolved_oxygen_mgl") if isinstance(flow_data, dict) else None,
+            "do_condition": flow_data.get("do_condition") if isinstance(flow_data, dict) else None,
+            "ph": flow_data.get("ph") if isinstance(flow_data, dict) else None,
+            "ph_condition": flow_data.get("ph_condition") if isinstance(flow_data, dict) else None,
+            "specific_conductance_uscm": flow_data.get("specific_conductance_uscm") if isinstance(flow_data, dict) else None,
             "species": info.get("species", []),
             "gear": info.get("gear", []),
             "region": info.get("region", "Oregon"),
@@ -330,6 +343,36 @@ def get_turbidity_label(fnu) -> dict:
         return {"label": f"{fnu:.1f} FNU — Muddy", "emoji": "🔴", "color": "red", "fishing": "Very poor clarity."}
     else:
         return {"label": f"{fnu:.0f} FNU — Flood Mud", "emoji": "⛔", "color": "darkred", "fishing": "Do not wade."}
+
+
+def get_do_condition(do_mgl) -> dict:
+    if do_mgl is None:
+        return {"label": "No Data", "emoji": "❓", "color": "gray", "fishing": "Unknown DO"}
+    if do_mgl < 3:
+        return {"label": f"DO {do_mgl:.1f} mg/L — Hypoxic", "emoji": "⚠️", "color": "red", "fishing": "Fish severely stressed. Avoid fishing."}
+    elif do_mgl < 5:
+        return {"label": f"DO {do_mgl:.1f} mg/L — Low", "emoji": "🟠", "color": "orange", "fishing": "Fish sluggish. Handle quickly if C&R."}
+    elif do_mgl < 7:
+        return {"label": f"DO {do_mgl:.1f} mg/L — Adequate", "emoji": "🟡", "color": "yellow", "fishing": "Fish moderately active."}
+    elif do_mgl < 9:
+        return {"label": f"DO {do_mgl:.1f} mg/L — Good", "emoji": "🟢", "color": "green", "fishing": "Fish active and feeding."}
+    else:
+        return {"label": f"DO {do_mgl:.1f} mg/L — Excellent", "emoji": "💚", "color": "cyan", "fishing": "Prime dissolved oxygen. Fish aggressive."}
+
+
+def get_ph_condition(ph) -> dict:
+    if ph is None:
+        return {"label": "No Data", "emoji": "❓", "color": "gray", "fishing": "Unknown pH"}
+    if ph < 5.5:
+        return {"label": f"pH {ph:.1f} — Acidic", "emoji": "⚠️", "color": "red", "fishing": "Toxic to fish. Avoid."}
+    elif ph < 6.5:
+        return {"label": f"pH {ph:.1f} — Slightly Acidic", "emoji": "🟠", "color": "orange", "fishing": "Fish may be stressed."}
+    elif ph <= 8.5:
+        return {"label": f"pH {ph:.1f} — Normal", "emoji": "🟢", "color": "green", "fishing": "Ideal pH range for trout/salmon."}
+    elif ph <= 9.0:
+        return {"label": f"pH {ph:.1f} — Alkaline", "emoji": "🟡", "color": "yellow", "fishing": "Elevated. Fish may be less active."}
+    else:
+        return {"label": f"pH {ph:.1f} — High Alkaline", "emoji": "🔴", "color": "red", "fishing": "Potentially toxic ammonia."}
 
 
 def get_condition(river_name: str, cfs) -> dict:
@@ -391,3 +434,75 @@ def rank_tenkara(river_summary: list) -> list:
     ranked = [r for r in river_summary if r["is_tenkara"] and r["tenkara_score"] in ("Excellent", "Fishable")]
     ranked.sort(key=lambda x: (0 if x["tenkara_score"] == "Excellent" else 1))
     return ranked
+
+
+USGS_STAT_URL = "https://waterservices.usgs.gov/nwis/stat/"
+
+
+@ttl_cache(ttl=3600)
+def fetch_usgs_percentiles():
+    site_ids = ",".join(OREGON_GAGE_IDS.values())
+    results = {}
+    try:
+        resp = requests.get(USGS_STAT_URL, params={
+            "format": "json",
+            "sites": site_ids,
+            "parameterCd": "00060",
+            "statReportType": "daily",
+            "statTypeCd": "all",
+        }, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        for ts in data.get("value", {}).get("timeSeries", []):
+            site_code = ts["sourceInfo"]["siteCode"][0]["value"]
+            values = ts.get("values", [{}])[0].get("value", [])
+            if not values:
+                continue
+            stats = {}
+            for v in values:
+                stat_name = v.get("statistic", {}).get("statisticCd", "")
+                try:
+                    stats[stat_name] = float(v["value"])
+                except (ValueError, KeyError, TypeError):
+                    pass
+            for river, gid in OREGON_GAGE_IDS.items():
+                if gid == site_code and "P25" in stats:
+                    results[river] = {
+                        "site_id": site_code,
+                        "p10": stats.get("P10"),
+                        "p25": stats.get("P25"),
+                        "p50": stats.get("P50"),
+                        "p75": stats.get("P75"),
+                        "p90": stats.get("P90"),
+                        "mean": stats.get("MEAN"),
+                        "min": stats.get("MIN"),
+                        "max": stats.get("MAX"),
+                    }
+    except Exception as e:
+        results["error"] = str(e)
+    return results
+
+
+def get_percentile_label(cfs, percentiles) -> dict:
+    if cfs is None or not percentiles:
+        return {"label": "No comparison data", "emoji": "❓", "color": "gray", "pct": None}
+    p50 = percentiles.get("p50")
+    p75 = percentiles.get("p75")
+    p90 = percentiles.get("p90")
+    p25 = percentiles.get("p25")
+    p10 = percentiles.get("p10")
+    if p50 is None or p25 is None or p75 is None:
+        return {"label": "Insufficient historical data", "emoji": "❓", "color": "gray", "pct": None}
+    if cfs >= p90:
+        pct = min(99, int((cfs - p25) / (p90 - p25) * 100)) if p90 > p25 else 99
+        return {"label": f"Very High — above 90th percentile", "emoji": "🔴", "color": "red", "pct": pct}
+    elif cfs >= p75:
+        return {"label": f"High — above 75th percentile", "emoji": "🟠", "color": "orange", "pct": 82}
+    elif cfs >= p50:
+        return {"label": f"Normal — above median", "emoji": "🟢", "color": "green", "pct": 62}
+    elif cfs >= p25:
+        return {"label": f"Below normal — above 25th percentile", "emoji": "🟡", "color": "yellow", "pct": 37}
+    elif cfs >= p10:
+        return {"label": f"Low — below 25th percentile", "emoji": "🟠", "color": "orange", "pct": 17}
+    else:
+        return {"label": f"Very Low — below 10th percentile", "emoji": "🔴", "color": "red", "pct": 5}
