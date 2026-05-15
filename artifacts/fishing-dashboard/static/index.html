@@ -296,7 +296,7 @@ footer a:hover{color:var(--cyan);}
 @keyframes pulse{0%,100%{opacity:.6;}50%{opacity:1;}}
 .live-dot{display:inline-block;width:6px;height:6px;background:var(--green);border-radius:50%;margin-right:4px;animation:pulse 2s ease-in-out infinite;}
 
-/* ── AI Buddy Chat ── */
+/* ── Fisher Chat ── */
 .buddy-layout{display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:500px;}
 .buddy-top-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);}
 .buddy-model-select{background:var(--card);border:1px solid var(--border2);color:var(--text);padding:7px 12px;border-radius:8px;font-size:12px;font-family:'Inter',sans-serif;outline:none;flex:1;min-width:200px;}
@@ -426,7 +426,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
   <button class="tab-btn" onclick="showTab('hatcheries')">🏭 Hatcheries</button>
   <button class="tab-btn" onclick="showTab('lakes')">🏞️ Lakes</button>
   <button class="tab-btn" id="local-tab-btn" onclick="showTab('local')">📍 Local</button>
-  <button class="tab-btn" onclick="showTab('buddy')">🤖 AI Buddy</button>
+  <button class="tab-btn" onclick="showTab('buddy')">🎣 The Fisher</button>
 </nav>
 
 <div class="loc-strip">
@@ -702,7 +702,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
   <div class="buddy-layout">
     <div class="buddy-top-bar">
       <div style="flex:1;min-width:0;">
-        <div class="section-title" style="margin-bottom:2px;"><span>🤖</span> The Buddy — AI Fishing Assistant</div>
+        <div class="section-title" style="margin-bottom:2px;"><span>🎣</span> The Fisher — Oregon Fishing Assistant</div>
         <div class="section-sub">Powered by live USGS data, your fishing logs &amp; web search</div>
       </div>
       <select id="buddy-model" class="buddy-model-select">
@@ -724,8 +724,8 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
     <div id="buddy-messages" class="buddy-messages">
       <div class="buddy-welcome">
         <div class="buddy-welcome-icon">🎣</div>
-        <h3>Hey there, I'm The Buddy!</h3>
-        <p>I have live access to Oregon river flows, temps, weather, fish passage counts, hatcheries, and the web. Ask me anything about fishing conditions, where to go today, hatch reports, regulations, or gear advice.</p>
+        <h3>Welcome — I'm The Fisher</h3>
+        <p>Live Oregon river flows, water temperatures, weather, fish passage counts, hatcheries, and web search. Ask about conditions, where to fish, hatch reports, gear advice, or regulations.</p>
         <div class="buddy-suggestions">
           <button class="buddy-suggest-btn" onclick="suggestChat('Where should I fish today near Bend?')">📍 Where to fish near Bend?</button>
           <button class="buddy-suggest-btn" onclick="suggestChat('What are current Deschutes River conditions?')">💧 Deschutes conditions</button>
@@ -1877,7 +1877,7 @@ window.addEventListener('resize', () => {
   if (map) map.invalidateSize();
 });
 
-// ── AI Buddy Chat ──
+// ── The Fisher Chat ──
 let buddyHistory = [];
 let buddyTyping = false;
 
@@ -1897,8 +1897,8 @@ function clearChat() {
   container.innerHTML = `
     <div class="buddy-welcome">
       <div class="buddy-welcome-icon">🎣</div>
-      <h3>Hey there, I'm The Buddy!</h3>
-      <p>I have live access to Oregon river flows, temps, weather, fish passage counts, hatcheries, and the web. Ask me anything about fishing conditions, where to go today, hatch reports, regulations, or gear advice.</p>
+      <h3>Welcome — I'm The Fisher</h3>
+      <p>Live Oregon river flows, water temperatures, weather, fish passage counts, hatcheries, and web search. Ask about conditions, where to fish, hatch reports, gear advice, or regulations.</p>
       <div class="buddy-suggestions">
         <button class="buddy-suggest-btn" onclick="suggestChat('Where should I fish today near Bend?')">📍 Where to fish near Bend?</button>
         <button class="buddy-suggest-btn" onclick="suggestChat('What are current Deschutes River conditions?')">💧 Deschutes conditions</button>
@@ -1935,7 +1935,7 @@ function showTypingIndicator() {
   el.className = 'buddy-msg assistant';
   el.id = 'buddy-typing-indicator';
   el.innerHTML = `
-    <div class="buddy-label">The Buddy</div>
+    <div class="buddy-label">The Fisher</div>
     <div class="buddy-typing">
       <div class="buddy-typing-dots">
         <div class="buddy-typing-dot"></div>
@@ -1963,7 +1963,7 @@ function showWorkingIndicator() {
   el.innerHTML = `
     <div class="buddy-working">
       <div class="buddy-working-pulse"></div>
-      <span class="buddy-working-text">🎣 The Buddy is working on your request…</span>
+      <span class="buddy-working-text">🎣 The Fisher is working on your request…</span>
     </div>`;
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;
@@ -2006,7 +2006,7 @@ function appendAssistantMsg(text, sources, wikiProposals) {
   const mdText = renderMdWithCitations(text);
 
   el.innerHTML = `
-    <div class="buddy-label">🎣 The Buddy</div>
+    <div class="buddy-label">🎣 The Fisher</div>
     <div class="buddy-bubble">${mdText}${sourcesHtml}</div>
     ${wikiHtml}`;
   container.appendChild(el);
@@ -2184,7 +2184,7 @@ function exportReport() {
   }
 
   if (userMessages.length === 0 || assistantMessages.length === 0) {
-    alert('No conversation to export. Ask The Buddy something first!');
+    alert('No conversation to export. Ask The Fisher something first!');
     return;
   }
 
@@ -2201,7 +2201,7 @@ function exportReport() {
     md += `## 💬 Your Question\n`;
     md += `> ${userMessages[i]}\n\n`;
     if (assistantMessages[i]) {
-      md += `## 🎣 The Buddy's Report\n`;
+      md += `## 🎣 The Fisher's Report\n`;
       md += assistantMessages[i].text + '\n\n';
       if (assistantMessages[i].sources.length > 0) {
         md += `### 📚 Sources\n`;

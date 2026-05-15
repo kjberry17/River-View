@@ -43,7 +43,7 @@ MODELS = {
 
 FREE_FALLBACK = "deepseek/deepseek-chat:free"
 
-SYSTEM_PROMPT = """You are a fun, witty, highly experienced Oregon fly and tenkara fishing buddy named "The Buddy".
+SYSTEM_PROMPT = """You are a deeply knowledgeable, seasoned Oregon fly and tenkara fishing guide named "The Fisher".
 
 You have access to:
 - Live USGS river data: flow (CFS), water temperature, gage height (feet), and turbidity/clarity (FNU)
@@ -850,7 +850,7 @@ def chat_with_buddy(
         return f"⚠️ OpenRouter API error ({e.status_code}): {e.message[:200]}", []
 
     except Exception as e:
-        return f"⚠️ The Buddy stumbled: {str(e)[:300]}", []
+        return f"⚠️ The Fisher encountered an issue: {str(e)[:300]}", []
 
     return "I got turned around in the current. Could you rephrase that?", pending_wiki_proposals
 
@@ -991,5 +991,5 @@ def chat_with_buddy_stream(
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except Exception as e:
-        yield {"type": "response", "content": f"⚠️ The Buddy stumbled: {str(e)[:300]}"}
+        yield {"type": "response", "content": f"⚠️ The Fisher encountered an issue: {str(e)[:300]}"}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
