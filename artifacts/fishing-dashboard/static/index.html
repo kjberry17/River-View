@@ -1053,10 +1053,13 @@ function renderLevelsChart() {
   if (!el) return;
   if (!levelsFlowChart) levelsFlowChart = echarts.init(el, null, { renderer: 'canvas' });
 
+  const isMobile = window.innerWidth < 768;
+  const flowLimit = isMobile ? 20 : 40;
+
   const withFlow = levelsData
     .filter(g => g.flow_cfs != null && g.flow_cfs > 0)
     .sort((a, b) => b.flow_cfs - a.flow_cfs)
-    .slice(0, 40);
+    .slice(0, flowLimit);
 
   const STATUS_ECHART_COLORS = {
     'Good': '#00ff87', 'Okay': '#00cc66', 'Great': '#00ffcc',
@@ -1068,6 +1071,8 @@ function renderLevelsChart() {
   const names = withFlow.map(g => g.name);
   const values = withFlow.map(g => g.flow_cfs);
   const colors = withFlow.map(g => STATUS_ECHART_COLORS[g.status] || '#3d6480');
+
+  el.style.minHeight = Math.max(320, withFlow.length * 22) + 'px';
 
   levelsFlowChart.setOption({
     backgroundColor: 'transparent',
@@ -1094,14 +1099,15 @@ function renderLevelsChart() {
     yAxis: {
       type: 'category',
       data: names,
-      axisLabel: { color: '#dceeff', fontSize: 9, width: 160, overflow: 'truncate' },
+      axisLabel: { color: '#dceeff', fontSize: isMobile ? 8 : 9, width: isMobile ? 110 : 150, overflow: 'truncate' },
     },
     series: [{
       type: 'bar',
       data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [0, 3, 3, 0] } })),
-      barMaxWidth: 16,
+      barMaxWidth: isMobile ? 14 : 16,
     }],
   });
+  levelsFlowChart.resize();
 }
 
 // ── Stats bar ──
@@ -1386,7 +1392,11 @@ function renderTempChart() {
     .filter(g => g.temp_f != null && !usgsNames.has(g.name.toLowerCase()))
     .map(g => ({ label: `${g.name} (${g.location})`, temp_f: g.temp_f, source: 'WKCC', condLabel: '' }));
 
-  const withTemp = [...usgsPoints, ...wkccPoints].sort((a, b) => a.temp_f - b.temp_f);
+  const isMobile = window.innerWidth < 768;
+  const tempLimit = isMobile ? 20 : 30;
+
+  const allSorted = [...usgsPoints, ...wkccPoints].sort((a, b) => a.temp_f - b.temp_f);
+  const withTemp = allSorted.slice(-tempLimit); // warmest N rivers
   if (!withTemp.length) {
     tempChart.setOption({ title: { text: 'No temperature data available', textStyle: { color: '#7da8cc' } }, backgroundColor: 'transparent' });
     return;
@@ -1403,6 +1413,9 @@ function renderTempChart() {
     return '#ff4757';
   });
 
+  const tempEl = document.getElementById('temp-chart');
+  if (tempEl) tempEl.style.minHeight = Math.max(320, withTemp.length * 22) + 'px';
+
   tempChart.setOption({
     backgroundColor: 'transparent',
     tooltip: {
@@ -1413,31 +1426,45 @@ function renderTempChart() {
         return `<b>${pt.label}</b><br>🌡️ ${p[0].value}°F<br><span style="color:#7da8cc">${pt.condLabel}</span><br><span style="font-size:10px;color:#4d88aa">${pt.source}</span>`;
       },
     },
-    grid: { left: '2%', right: '4%', bottom: '12%', top: '8%', containLabel: true },
-    xAxis: { type: 'category', data: names, axisLabel: { color: '#7da8cc', fontSize: 9, rotate: 40, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
-    yAxis: {
-      type: 'value', name: '°F', nameTextStyle: { color: '#7da8cc' },
-      axisLabel: { color: '#7da8cc', formatter: '{value}°F' },
+    grid: { left: '2%', right: '10%', bottom: '2%', top: '8%', containLabel: true },
+    xAxis: {
+      type: 'value',
+      name: '°F', nameTextStyle: { color: '#7da8cc', fontSize: 10 },
+      axisLabel: { color: '#7da8cc', fontSize: 10, formatter: v => v + '°F' },
       splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } },
-      min: v => Math.floor(v.min - 5),
+      min: v => Math.floor(v.min - 3),
+    },
+    yAxis: {
+      type: 'category',
+      data: names,
+      axisLabel: { color: '#dceeff', fontSize: isMobile ? 8 : 9, width: isMobile ? 110 : 150, overflow: 'truncate' },
+      axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } },
     },
     series: [
       {
-        type: 'bar', data: temps.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [4, 4, 0, 0] } })),
-        barMaxWidth: 20,
-        label: { show: true, position: 'top', color: '#dceeff', fontSize: 9, formatter: p => p.value.toFixed(1) + '°' },
-      },
-      {
-        type: 'line', data: new Array(names.length).fill(50), lineStyle: { color: '#00ff87', type: 'dashed', width: 1 },
-        symbol: 'none', z: 10, name: 'Ideal Min (50°F)',
-      },
-      {
-        type: 'line', data: new Array(names.length).fill(68), lineStyle: { color: '#ff9f43', type: 'dashed', width: 1 },
-        symbol: 'none', z: 10, name: 'Ideal Max (68°F)',
+        type: 'bar',
+        data: temps.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [0, 3, 3, 0] } })),
+        barMaxWidth: 14,
+        label: { show: true, position: 'right', color: '#dceeff', fontSize: 9, formatter: p => p.value.toFixed(1) + '°' },
+        markLine: {
+          silent: true, symbol: 'none',
+          lineStyle: { type: 'dashed', width: 1 },
+          data: [
+            { xAxis: 50, lineStyle: { color: '#00ff87' }, label: { formatter: '50°F', color: '#00ff87', fontSize: 9 } },
+            { xAxis: 68, lineStyle: { color: '#ff9f43' }, label: { formatter: '68°F', color: '#ff9f43', fontSize: 9 } },
+          ],
+        },
       },
     ],
-    legend: { data: ['Ideal Min (50°F)', 'Ideal Max (68°F)'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
+    legend: {
+      data: [
+        { name: 'Ideal Min (50°F)', itemStyle: { color: '#00ff87' }, lineStyle: { color: '#00ff87', type: 'dashed' } },
+        { name: 'Ideal Max (68°F)', itemStyle: { color: '#ff9f43' }, lineStyle: { color: '#ff9f43', type: 'dashed' } },
+      ],
+      textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0,
+    },
   });
+  tempChart.resize();
 
   // Distribution chart
   const bins = { 'Cold (<45°F)': 0, 'Cool (45–50°F)': 0, 'Ideal (50–68°F)': 0, 'Warm (68–72°F)': 0, 'Hot (>72°F)': 0 };
