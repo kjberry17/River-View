@@ -706,6 +706,10 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
       <div class="section-sub">levels.wkcc.org · Willamette Kayak &amp; Canoe Club · Cached 5 min</div>
     </div>
   </div>
+  <div class="chart-wrap" id="levels-chart-wrap" style="margin-bottom:16px;">
+    <div class="chart-title">📊 Flow Rates — Top 40 Rivers by CFS</div>
+    <div id="levels-flow-chart" class="echart-tall"></div>
+  </div>
   <div class="filter-bar">
     <input type="text" id="levels-search" placeholder="Search river or location…" oninput="filterLevels()">
     <select id="levels-drainage" onchange="filterLevels()">
@@ -849,7 +853,7 @@ function showTab(name) {
   if (name === 'coastal' && Object.keys(coastalData).length) renderBuoyChart();
   if (name === 'weather' && Object.keys(weatherData).length) renderWeatherChart();
   if (name === 'lakes' && lakeData.length) renderLakeChart();
-  if (name === 'levels' && !levelsLoaded) loadLevels();
+  if (name === 'levels' && levelsData.length) renderLevelsChart();
 }
 
 // ── Fetch helpers ──
@@ -868,6 +872,7 @@ async function loadAll() {
     loadCoastal(),
     loadHatcheries(),
     loadLakes(),
+    loadLevels(),
   ]);
 }
 
@@ -973,6 +978,9 @@ async function loadLevels() {
     if (curSt) stSel.value = curSt;
 
     renderLevels(levelsData);
+    renderStatsBar();
+    if (document.getElementById('tab-temps').classList.contains('active')) renderTempChart();
+    if (document.getElementById('tab-levels').classList.contains('active')) renderLevelsChart();
   } catch(e) { levelsLoaded = false; console.error('levels:', e); }
 }
 
@@ -1024,18 +1032,77 @@ function renderLevels(gauges) {
   document.getElementById('levels-count').textContent = `${gauges.length} gauges`;
 }
 
+let levelsFlowChart = null;
+function renderLevelsChart() {
+  const el = document.getElementById('levels-flow-chart');
+  if (!el) return;
+  if (!levelsFlowChart) levelsFlowChart = echarts.init(el, null, { renderer: 'canvas' });
+
+  const withFlow = levelsData
+    .filter(g => g.flow_cfs != null && g.flow_cfs > 0)
+    .sort((a, b) => b.flow_cfs - a.flow_cfs)
+    .slice(0, 40);
+
+  const STATUS_ECHART_COLORS = {
+    'Good': '#00ff87', 'Okay': '#00cc66', 'Great': '#00ffcc',
+    'Low': '#4488ff', 'Very Low': '#2255cc',
+    'High': '#ffaa00', 'Very High': '#ff6600',
+    'Flood': '#ff2222', 'Danger': '#ff0000',
+  };
+
+  const names = withFlow.map(g => g.name);
+  const values = withFlow.map(g => g.flow_cfs);
+  const colors = withFlow.map(g => STATUS_ECHART_COLORS[g.status] || '#3d6480');
+
+  levelsFlowChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: '#0d1e36',
+      borderColor: 'rgba(0,180,255,.3)',
+      textStyle: { color: '#dceeff', fontSize: 12 },
+      formatter: params => {
+        const g = withFlow[params[0].dataIndex];
+        const ht = g.height_ft != null ? `<br>📏 ${g.height_ft.toFixed(2)} ft` : '';
+        const tmp = g.temp_f != null ? `<br>🌡️ ${g.temp_f.toFixed(1)}°F` : '';
+        return `<b>${g.name}</b><br><span style="color:#7da8cc">${g.location} · ${g.drainage}</span><br>
+          <span style="color:${colors[params[0].dataIndex]}">${params[0].value.toLocaleString()} CFS — ${g.status}</span>${ht}${tmp}`;
+      },
+    },
+    grid: { left: '2%', right: '5%', bottom: '2%', top: '2%', containLabel: true },
+    xAxis: {
+      type: 'value',
+      axisLabel: { color: '#7da8cc', fontSize: 10, formatter: v => v >= 1000 ? (v/1000).toFixed(0)+'k' : v },
+      splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } },
+    },
+    yAxis: {
+      type: 'category',
+      data: names,
+      axisLabel: { color: '#dceeff', fontSize: 9, width: 160, overflow: 'truncate' },
+    },
+    series: [{
+      type: 'bar',
+      data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [0, 3, 3, 0] } })),
+      barMaxWidth: 16,
+    }],
+  });
+}
+
 // ── Stats bar ──
 function renderStatsBar() {
   const good = riverData.filter(r => r.condition.status === 'good').length;
   const tenkara = riverData.filter(r => r.tenkara_score === 'Excellent').length;
   const stocked = riverData.filter(r => r.is_stocked).length;
   const withTemp = riverData.filter(r => r.temp_f != null).length;
+  const wkccTemps = levelsData.filter(g => g.temp_f != null).length;
   document.getElementById('stats-bar').innerHTML = `
     <div class="stat-pill green"><span class="label">Fishable</span><span class="value">${good}</span></div>
     <div class="stat-pill"><span class="label">Rivers</span><span class="value">${riverData.length}</span></div>
+    <div class="stat-pill"><span class="label">Gauges</span><span class="value">${levelsData.length}</span></div>
     <div class="stat-pill"><span class="label">Tenkara ✓</span><span class="value">${tenkara}</span></div>
     <div class="stat-pill orange"><span class="label">Stocked</span><span class="value">${stocked}</span></div>
-    <div class="stat-pill"><span class="label">Temps</span><span class="value">${withTemp}</span></div>
+    <div class="stat-pill"><span class="label">Temps</span><span class="value">${withTemp + wkccTemps}</span></div>
   `;
 }
 
@@ -1050,12 +1117,35 @@ function renderMap() {
     map.eachLayer(l => { if (l instanceof L.CircleMarker || l instanceof L.Marker) map.removeLayer(l); });
   }
 
+  // Build WKCC lookup: key = normalized river name → array of gauges
+  const wkccByRiver = {};
+  levelsData.forEach(g => {
+    const norm = g.name.replace(/\s*\(est\)/i, '').toLowerCase().trim();
+    (wkccByRiver[norm] = wkccByRiver[norm] || []).push(g);
+  });
+
+  function findWkccGauges(riverName) {
+    const norm = riverName.toLowerCase()
+      .replace(/ river$/i, '').replace(/ creek$/i, '')
+      .replace(/ fork$/i, '').trim();
+    return Object.entries(wkccByRiver)
+      .filter(([k]) => k.includes(norm) || norm.includes(k))
+      .flatMap(([, v]) => v)
+      .slice(0, 3);
+  }
+
   riverData.forEach(river => {
     const color = CONDITION_COLORS[river.condition.status] || '#3d6480';
     const radius = river.condition.status === 'good' ? 10 : 8;
     const cfsStr = river.cfs != null ? `${Math.round(river.cfs).toLocaleString()} CFS` : 'No data';
     const tempStr = river.temp_f != null ? `<br>🌡️ ${river.temp_f.toFixed(1)}°F` : '';
     const stageStr = river.stage_ft != null ? `<br>📏 Stage: ${river.stage_ft.toFixed(2)} ft` : '';
+    const wkccGauges = findWkccGauges(river.river);
+    const wkccStr = wkccGauges.length
+      ? '<div style="font-size:10px;color:#7da8cc;margin-top:6px;border-top:1px solid #1e3a5f;padding-top:4px;">' +
+        wkccGauges.map(g => `📡 ${g.location}: ${g.flow_cfs != null ? g.flow_cfs.toLocaleString()+' CFS' : '—'} ${g.height_ft != null ? '/ '+g.height_ft.toFixed(2)+' ft' : ''} <span style="color:${g.status_color}">${g.status}</span>`).join('<br>') +
+        '</div>'
+      : '';
     const species = (river.species || []).slice(0, 3).join(', ');
     const gear = (river.gear || []).slice(0, 2).join(', ');
     const popup = `
@@ -1070,6 +1160,7 @@ function renderMap() {
           🐟 ${species}<br>🎣 ${gear}
         </div>
         <div style="font-size:10px;color:#e67e22;margin-top:4px;">⚖️ ${(river.regulations||'').substring(0,70)}</div>
+        ${wkccStr}
       </div>`;
 
     L.circleMarker([river.lat, river.lon], {
@@ -1269,13 +1360,24 @@ function renderTempChart() {
   if (!tempChart) tempChart = echarts.init(document.getElementById('temp-chart'), null, { renderer: 'canvas' });
   if (!tempDistChart) tempDistChart = echarts.init(document.getElementById('temp-dist-chart'), null, { renderer: 'canvas' });
 
-  const withTemp = riverData.filter(r => r.temp_f != null).sort((a, b) => a.temp_f - b.temp_f);
+  // USGS points
+  const usgsPoints = riverData
+    .filter(r => r.temp_f != null)
+    .map(r => ({ label: r.river, temp_f: r.temp_f, source: 'USGS', condLabel: r.temp_condition?.label || '' }));
+
+  // WKCC points — dedupe by exact name already in usgsPoints
+  const usgsNames = new Set(usgsPoints.map(p => p.label.toLowerCase()));
+  const wkccPoints = levelsData
+    .filter(g => g.temp_f != null && !usgsNames.has(g.name.toLowerCase()))
+    .map(g => ({ label: `${g.name} (${g.location})`, temp_f: g.temp_f, source: 'WKCC', condLabel: '' }));
+
+  const withTemp = [...usgsPoints, ...wkccPoints].sort((a, b) => a.temp_f - b.temp_f);
   if (!withTemp.length) {
     tempChart.setOption({ title: { text: 'No temperature data available', textStyle: { color: '#7da8cc' } }, backgroundColor: 'transparent' });
     return;
   }
 
-  const names = withTemp.map(r => r.river);
+  const names = withTemp.map(r => r.label);
   const temps = withTemp.map(r => r.temp_f);
   const colors = withTemp.map(r => {
     const t = r.temp_f;
@@ -1291,7 +1393,10 @@ function renderTempChart() {
     tooltip: {
       trigger: 'axis',
       backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' },
-      formatter: p => `<b>${withTemp[p[0].dataIndex].river}</b><br>🌡️ ${p[0].value}°F<br>${withTemp[p[0].dataIndex].temp_condition.label}`,
+      formatter: p => {
+        const pt = withTemp[p[0].dataIndex];
+        return `<b>${pt.label}</b><br>🌡️ ${p[0].value}°F<br><span style="color:#7da8cc">${pt.condLabel}</span><br><span style="font-size:10px;color:#4d88aa">${pt.source}</span>`;
+      },
     },
     grid: { left: '2%', right: '4%', bottom: '12%', top: '8%', containLabel: true },
     xAxis: { type: 'category', data: names, axisLabel: { color: '#7da8cc', fontSize: 9, rotate: 40, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },

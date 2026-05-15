@@ -360,6 +360,13 @@ def api_chat():
 
         live_data["_stocking"] = [r for r in river_summary if r.get("is_stocked")]
 
+        try:
+            from wkcc_fetcher import fetch_wkcc_levels
+            wkcc = fetch_wkcc_levels()
+            live_data["_wkcc_gauges"] = wkcc.get("gauges", [])
+        except Exception:
+            live_data["_wkcc_gauges"] = []
+
         if use_stream:
             from ai_buddy import chat_with_buddy_stream
             import json as _json
