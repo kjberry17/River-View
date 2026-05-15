@@ -1,12 +1,14 @@
 modules = ["nodejs-24", "python-3.11"]
+entrypoint = "artifacts/fishing-dashboard/app.py"
+
+[run]
+args = ["bash", "-lc", "python -m pip install -r artifacts/fishing-dashboard/requirements.txt && exec bash artifacts/fishing-dashboard/start.sh"]
 
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
-
-[deployment.postBuild]
-args = ["pnpm", "store", "prune"]
-env = { "CI" = "true" }
+build = ["bash", "-lc", "python -m pip install -r artifacts/fishing-dashboard/requirements.txt"]
+run = ["bash", "-lc", "exec bash artifacts/fishing-dashboard/start.sh"]
 
 [workflows]
 
@@ -21,18 +23,6 @@ timeoutMs = 20000
 [[ports]]
 localPort = 5000
 externalPort = 5000
-
-[[ports]]
-localPort = 8080
-externalPort = 8080
-
-[[ports]]
-localPort = 8081
-externalPort = 80
-
-[[ports]]
-localPort = 8082
-externalPort = 3001
 
 [nix]
 channel = "stable-25_05"

@@ -48,3 +48,6 @@ Thumbs.db
 .cache/
 .local/
 __pycache__/
+
+# Local dashboard secrets
+artifacts/fishing-dashboard/.env
