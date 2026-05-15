@@ -80,7 +80,9 @@ When recommending rivers today:
 4. Check user's preferred rivers and drive time from home base
 5. Check recent logs for that river
 
-Always use tools before answering fishing questions. Think like a local expert who knows Oregon intimately."""
+Always use tools before answering fishing questions. Think like a local expert who knows Oregon intimately.
+
+IMPORTANT — CITATIONS: When you use web_search or get_fishing_reports results, cite your sources inline using [1], [2] etc. Place the citation marker immediately after the fact you're citing. I'll render them as clickable footnotes automatically. Example: "The salmonfly hatch is peaking right now [1]." Never cite your own internal knowledge or live data from USGS/NWS/NOAA — only cite web search results."""
 
 
 def get_client():
@@ -335,7 +337,7 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                     )
         except Exception:
             results.append("DATABASE NOT CONFIGURED: Set DATABASE_URL for Wiki, preferences, and fishing logs.")
-        return "\n\n".join(results) if results else "No Wiki entries found."
+        return "\n\n".join(results) if results else "No Wiki entries found.", []
 
     elif tool_name == "get_live_data":
         river_filter = (args.get("river") or "").lower()
@@ -422,7 +424,7 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
             lines.append("\n=== USGS GAGE HEIGHT (Stage in Feet) ===")
             lines.extend(stage_rivers)
 
-        return "\n".join(lines)
+        return "\n".join(lines), []
 
     elif tool_name == "update_wiki":
         return json.dumps({
@@ -434,7 +436,7 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
             "tags": args.get("tags", []),
             "confidence": args.get("confidence", "personal"),
             "requires_confirmation": args.get("requires_confirmation", True),
-        })
+        }), []
 
     elif tool_name == "get_hatchery_info":
         from hatcheries import OREGON_HATCHERIES
@@ -453,33 +455,33 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                 f"🏭 {h['name']} ({h['region']}): {', '.join(h['species'])} | "
                 f"River: {h['river_system']} | {h.get('notes', '')}"
             )
-        return "\n".join(results) if results else "No hatcheries found matching criteria."
+        return "\n".join(results) if results else "No hatcheries found matching criteria.", []
 
     elif tool_name == "web_search":
         return _execute_web_search(args)
 
     elif tool_name == "get_snowpack":
-        return _execute_snowpack(args)
+        return _execute_snowpack(args), []
 
     elif tool_name == "get_drought":
-        return _execute_drought(args)
+        return _execute_drought(args), []
 
     elif tool_name == "get_air_quality":
-        return _execute_air_quality(args)
+        return _execute_air_quality(args), []
 
     elif tool_name == "get_marine_forecast":
-        return _execute_marine_forecast(args)
+        return _execute_marine_forecast(args), []
 
     elif tool_name == "get_wildlife_sightings":
-        return _execute_wildlife(args)
+        return _execute_wildlife(args), []
 
     elif tool_name == "get_dam_passage":
-        return _execute_dam_passage(args)
+        return _execute_dam_passage(args), []
 
     elif tool_name == "get_fishing_reports":
         return _execute_fishing_reports(args)
 
-    return f"Unknown tool: {tool_name}"
+    return f"Unknown tool: {tool_name}", []
 
 
 def _show_tool_status(tool_name: str, args: dict):
@@ -526,10 +528,10 @@ def _show_tool_status(tool_name: str, args: dict):
         pass
 
 
-def _execute_web_search(args: dict) -> str:
+def _execute_web_search(args: dict) -> tuple:
     query = args.get("query", "").strip()
     if not query:
-        return "No search query provided."
+        return "No search query provided.", []
 
     num_results = min(max(int(args.get("num_results", 5)), 2), 8)
     context = args.get("fishing_context", "general")
@@ -539,15 +541,16 @@ def _execute_web_search(args: dict) -> str:
     if not any(kw.lower() in query.lower() for kw in fishing_keywords):
         query = f"Oregon fishing {query}"
 
+    sources = []
     try:
         from web_tools import ddg_search
         result = ddg_search(query, max_results=num_results)
         if result.get("error"):
-            return f"Web search error: {result.get('error')}"
+            return f"Web search error: {result.get('error')}", []
 
         results_list = result.get("results", [])
         if not results_list:
-            return f"No results found for: '{query}'"
+            return f"No results found for: '{query}'", []
 
         lines = [f"Web search: **{query}**", f"Found {len(results_list)} results:"]
         for i, r in enumerate(results_list, 1):
@@ -561,12 +564,14 @@ def _execute_web_search(args: dict) -> str:
                 if snippet:
                     lines.append(f"   {snippet}")
                 lines.append("")
+                if title and url:
+                    sources.append({"title": title, "url": url})
 
         lines.append(f"_Search via DuckDuckGo · {context} context_")
-        return "\n".join(lines)
+        return "\n".join(lines), sources
 
     except Exception as e:
-        return f"Web search error: {str(e)[:120]}"
+        return f"Web search error: {str(e)[:120]}", []
 
 
 def _execute_snowpack(args: dict) -> str:
@@ -728,10 +733,11 @@ def _execute_dam_passage(args: dict) -> str:
         return f"Dam passage error: {e}"
 
 
-def _execute_fishing_reports(args: dict) -> str:
+def _execute_fishing_reports(args: dict) -> tuple:
     river = args.get("river")
     species = args.get("species")
     include_reddit = args.get("include_reddit", True)
+    sources = []
     try:
         from web_tools import extract_relevant_osint, fetch_reddit_multisub
         lines = []
@@ -755,10 +761,12 @@ def _execute_fishing_reports(args: dict) -> str:
                 lines.append("\n**Reddit Fishing Community:**")
                 for p in posts[:8]:
                     lines.append(f"r/{p.get('source_sub','?')} | {p['title'][:120]} | {p['score']} pts, {p['num_comments']} comments | u/{p['author']}")
+                    if p.get("permalink"):
+                        sources.append({"title": p.get("title", "")[:120], "url": p["permalink"]})
 
-        return "\n".join(lines) if lines else "No recent OSINT fishing reports found."
+        return ("\n".join(lines) if lines else "No recent OSINT fishing reports found."), sources
     except Exception as e:
-        return f"Fishing reports error: {e}"
+        return f"Fishing reports error: {e}", []
 
 
 def chat_with_buddy(
@@ -803,7 +811,7 @@ def chat_with_buddy(
                     args = json.loads(tc.function.arguments)
                     _show_tool_status(tc.function.name, args)
                     try:
-                        result = execute_tool(tc.function.name, args, live_data, db_module)
+                        result, _tool_sources = execute_tool(tc.function.name, args, live_data, db_module)
                     except Exception as tool_err:
                         result = f"Tool '{tc.function.name}' error: {tool_err}"
                     if tc.function.name == "update_wiki":
@@ -841,3 +849,141 @@ def chat_with_buddy(
         return f"⚠️ The Buddy stumbled: {str(e)[:300]}", []
 
     return "I got turned around in the current. Could you rephrase that?", pending_wiki_proposals
+
+
+TOOL_ICONS = {
+    "query_wiki": "📚",
+    "get_live_data": "📡",
+    "update_wiki": "✏️",
+    "get_hatchery_info": "🏭",
+    "web_search": "🔍",
+    "get_snowpack": "❄️",
+    "get_drought": "🌵",
+    "get_air_quality": "💨",
+    "get_marine_forecast": "🌊",
+    "get_wildlife_sightings": "🐟",
+    "get_dam_passage": "🏗️",
+    "get_fishing_reports": "📰",
+}
+
+TOOL_LABELS = {
+    "query_wiki": "Reading your Wiki",
+    "get_live_data": "Fetching live river & ocean data",
+    "update_wiki": "Preparing Wiki update",
+    "get_hatchery_info": "Looking up hatcheries",
+    "web_search": "Searching the web",
+    "get_snowpack": "Checking snowpack",
+    "get_drought": "Checking drought conditions",
+    "get_air_quality": "Checking air quality",
+    "get_marine_forecast": "Fetching marine forecast",
+    "get_wildlife_sightings": "Checking wildlife sightings",
+    "get_dam_passage": "Fetching dam fish counts",
+    "get_fishing_reports": "Searching fishing reports",
+}
+
+
+def chat_with_buddy_stream(
+    user_message: str,
+    conversation_history: list,
+    live_data: dict,
+    db_module,
+    model_key: str = "⚡ DeepSeek V4 Flash",
+):
+    client = get_client()
+    model = MODELS.get(model_key, FREE_FALLBACK)
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(conversation_history[-14:])
+    messages.append({"role": "user", "content": user_message})
+
+    pending_wiki_proposals = []
+    all_sources = []
+    max_iterations = 6
+
+    try:
+        for _ in range(max_iterations):
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+                max_tokens=1200,
+            )
+            choice = response.choices[0]
+            msg = choice.message
+
+            if choice.finish_reason == "tool_calls" and msg.tool_calls:
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                        for tc in msg.tool_calls
+                    ],
+                })
+                for tc in msg.tool_calls:
+                    args = json.loads(tc.function.arguments)
+                    tool_label = TOOL_LABELS.get(tc.function.name, tc.function.name)
+                    tool_icon = TOOL_ICONS.get(tc.function.name, "⚙️")
+                    query_hint = args.get("query", "")[:60] or args.get("river", "")[:60] or ""
+                    label = f"{tool_label}{': ' + query_hint if query_hint else ''}"
+
+                    yield {"type": "tool_start", "tool": tc.function.name, "icon": tool_icon, "label": label}
+
+                    try:
+                        result, tool_sources = execute_tool(tc.function.name, args, live_data, db_module)
+                    except Exception as tool_err:
+                        result = f"Tool '{tc.function.name}' error: {tool_err}"
+                        tool_sources = []
+
+                    for src in tool_sources:
+                        if src not in all_sources:
+                            all_sources.append(src)
+
+                    yield {"type": "tool_end", "tool": tc.function.name, "icon": tool_icon, "label": label}
+
+                    if tc.function.name == "update_wiki":
+                        try:
+                            parsed = json.loads(result)
+                            if parsed.get("proposed"):
+                                pending_wiki_proposals.append(parsed)
+                        except Exception:
+                            pass
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+            else:
+                content = msg.content or "No response generated."
+                yield {"type": "response", "content": content}
+                yield {"type": "done", "sources": all_sources, "wiki_proposals": pending_wiki_proposals}
+                return
+
+    except PermissionDeniedError:
+        if model != FREE_FALLBACK:
+            try:
+                messages[-1]["content"] = user_message
+                resp2 = client.chat.completions.create(
+                    model=FREE_FALLBACK,
+                    messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_message}],
+                    max_tokens=800,
+                )
+                content = resp2.choices[0].message.content + f"\n\n*(Fell back to free model — {model} requires credits)*"
+                yield {"type": "response", "content": content}
+                yield {"type": "done", "sources": [], "wiki_proposals": []}
+                return
+            except Exception as e2:
+                yield {"type": "response", "content": f"⚠️ AI unavailable: {e2}"}
+                yield {"type": "done", "sources": [], "wiki_proposals": []}
+                return
+        yield {"type": "response", "content": "⚠️ The selected model requires OpenRouter credits. Switch to a 'Free' model in the dropdown."}
+        yield {"type": "done", "sources": [], "wiki_proposals": []}
+
+    except RateLimitError:
+        yield {"type": "response", "content": "⚠️ Rate limit hit. Wait 30 seconds and try again, or switch to a different free model."}
+        yield {"type": "done", "sources": [], "wiki_proposals": []}
+
+    except APIStatusError as e:
+        yield {"type": "response", "content": f"⚠️ OpenRouter API error ({e.status_code}): {e.message[:200]}"}
+        yield {"type": "done", "sources": [], "wiki_proposals": []}
+
+    except Exception as e:
+        yield {"type": "response", "content": f"⚠️ The Buddy stumbled: {str(e)[:300]}"}
+        yield {"type": "done", "sources": [], "wiki_proposals": []}

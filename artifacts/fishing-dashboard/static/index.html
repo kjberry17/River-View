@@ -340,6 +340,13 @@ footer a:hover{color:var(--cyan);}
 .buddy-wiki-actions{display:flex;gap:8px;margin-top:8px;}
 .buddy-wiki-accept{background:rgba(0,255,135,.12);border:1px solid rgba(0,255,135,.3);color:var(--green);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;}
 .buddy-wiki-reject{background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.25);color:var(--red);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;}
+sup.cite{font-size:10px;color:var(--cyan);text-decoration:none;cursor:pointer;padding:0 2px;}
+sup.cite:hover{color:#fff;text-decoration:underline;}
+.buddy-sources{margin-top:14px;padding-top:10px;border-top:1px solid var(--border);}
+.buddy-sources-title{font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;}
+.buddy-source-item{font-size:11px;color:var(--text2);margin-bottom:3px;line-height:1.5;}
+.buddy-source-item a{color:var(--cyan);text-decoration:none;word-break:break-all;}
+.buddy-source-item a:hover{text-decoration:underline;}
 .buddy-input-area{display:flex;gap:10px;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border);}
 .buddy-textarea{flex:1;background:rgba(0,180,255,.07);border:1px solid rgba(0,180,255,.22);color:var(--text);padding:10px 14px;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;resize:none;min-height:44px;max-height:120px;line-height:1.5;transition:.2s;}
 .buddy-textarea:focus{border-color:var(--cyan);background:rgba(0,180,255,.1);}
@@ -1931,7 +1938,7 @@ function removeTypingIndicator() {
   if (el) el.remove();
 }
 
-function appendAssistantMsg(text, wikiProposals) {
+function appendAssistantMsg(text, sources, wikiProposals) {
   const container = document.getElementById('buddy-messages');
   const el = document.createElement('div');
   el.className = 'buddy-msg assistant';
@@ -1951,15 +1958,33 @@ function appendAssistantMsg(text, wikiProposals) {
     });
   }
 
+  let sourcesHtml = '';
+  if (sources && sources.length) {
+    sourcesHtml = '<div class="buddy-sources"><div class="buddy-sources-title">📚 Sources</div>';
+    sources.forEach((src, i) => {
+      sourcesHtml += `<div class="buddy-source-item"><sup class="cite">[${i+1}]</sup> <a href="${src.url}" target="_blank" rel="noopener">${src.title || src.url}</a></div>`;
+    });
+    sourcesHtml += '</div>';
+  }
+
+  const mdText = renderMdWithCitations(text);
+
   el.innerHTML = `
     <div class="buddy-label">🎣 The Buddy</div>
-    <div class="buddy-bubble">${renderMd(text)}</div>
+    <div class="buddy-bubble">${mdText}${sourcesHtml}</div>
     ${wikiHtml}`;
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;
 }
 
+function renderMdWithCitations(text) {
+  let md = renderMd(text);
+  md = md.replace(/\[(\d+)\]/g, '<sup class="cite">[$1]</sup>');
+  return md;
+}
+
 let pendingWikiProposals = [];
+
 function acceptWikiProposal(idx) {
   const proposal = pendingWikiProposals[idx];
   if (!proposal) return;
@@ -1973,6 +1998,31 @@ function acceptWikiProposal(idx) {
     }
   }).catch(() => {});
 }
+
+function showToolPill(icon, label) {
+  const container = document.getElementById('buddy-messages');
+  const el = document.createElement('div');
+  el.className = 'buddy-msg assistant';
+  el.innerHTML = `
+    <div class="buddy-tool-pill" style="margin:2px 0;">
+      ${icon} ${label}…
+    </div>`;
+  el._toolPill = true;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+  return el;
+}
+
+function updateToolPill(el, icon, label) {
+  if (!el || !el._toolPill) return;
+  const pill = el.querySelector('.buddy-tool-pill');
+  if (pill) {
+    pill.innerHTML = `${icon} ${label} ✓`;
+    pill.style.opacity = '0.5';
+  }
+}
+
+let currentStreamReader = null;
 
 async function sendChat() {
   if (buddyTyping) return;
@@ -1995,22 +2045,70 @@ async function sendChat() {
     const resp = await fetch('/fish/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history, model }),
+      body: JSON.stringify({ message, history, model, stream: true }),
     });
-    const data = await resp.json();
+
+    if (!resp.ok) {
+      removeTypingIndicator();
+      appendAssistantMsg(`⚠️ Server error: ${resp.status}`, [], []);
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let sources = [];
+    let wikiProposals = [];
+    let responseText = '';
+    let toolPills = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line);
+
+          if (event.type === 'tool_start') {
+            removeTypingIndicator();
+            const pill = showToolPill(event.icon, event.label);
+            toolPills.push(pill);
+          } else if (event.type === 'tool_end') {
+            // mark completed
+          } else if (event.type === 'response') {
+            toolPills.forEach(p => p.remove());
+            toolPills = [];
+            responseText = event.content || '';
+            sources = event.sources || sources;
+            wikiProposals = event.wiki_proposals || [];
+          } else if (event.type === 'done') {
+            sources = event.sources || sources;
+            wikiProposals = event.wiki_proposals || wikiProposals;
+          }
+        } catch (e) {}
+      }
+    }
+
+    toolPills.forEach(p => p.remove());
     removeTypingIndicator();
 
-    if (data.error) {
-      appendAssistantMsg(`⚠️ ${data.error}`, []);
-    } else {
-      pendingWikiProposals = data.wiki_proposals || [];
-      appendAssistantMsg(data.response || 'No response.', pendingWikiProposals);
+    if (responseText) {
+      pendingWikiProposals = wikiProposals;
+      appendAssistantMsg(responseText, sources, wikiProposals);
       buddyHistory.push({ role: 'user', content: message });
-      buddyHistory.push({ role: 'assistant', content: data.response || '' });
+      buddyHistory.push({ role: 'assistant', content: responseText });
+    } else {
+      appendAssistantMsg('⚠️ No response received.', [], []);
     }
   } catch (e) {
     removeTypingIndicator();
-    appendAssistantMsg('⚠️ Network error. Please check your connection and try again.', []);
+    appendAssistantMsg('⚠️ Network error. Please check your connection and try again.', [], []);
   } finally {
     buddyTyping = false;
     document.getElementById('buddy-send').disabled = false;

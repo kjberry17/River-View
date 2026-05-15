@@ -319,6 +319,7 @@ def api_chat():
     user_message = (body.get("message") or "").strip()
     history = body.get("history") or []
     model_key = body.get("model") or "⚡ DeepSeek V4 Flash"
+    use_stream = body.get("stream", False)
 
     if not user_message:
         return jsonify({"error": "No message provided"}), 400
@@ -348,6 +349,22 @@ def api_chat():
             live_data["_passage"] = {}
 
         live_data["_stocking"] = [r for r in river_summary if r.get("is_stocked")]
+
+        if use_stream:
+            from ai_buddy import chat_with_buddy_stream
+            import json as _json
+
+            def generate():
+                for event in chat_with_buddy_stream(
+                    user_message=user_message,
+                    conversation_history=history,
+                    live_data=live_data,
+                    db_module=db,
+                    model_key=model_key,
+                ):
+                    yield _json.dumps(event) + "\n"
+            from flask import Response
+            return Response(generate(), mimetype="application/x-ndjson")
 
         from ai_buddy import chat_with_buddy
         response, wiki_proposals = chat_with_buddy(
