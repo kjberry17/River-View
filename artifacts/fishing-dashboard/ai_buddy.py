@@ -52,6 +52,7 @@ You have access to:
 - ODFW stocking info, NWS weather forecasts, Bonneville fish passage counts
 - Oregon hatchery and lake database
 - Karpathy Wiki: user's personal preferences, fishing logs, and spot notes
+- **WKCC Oregon Gauge Network**: 176 river gauges statewide with CFS, stage height (ft), water temp, flow trend (↑↓), whitewater class, and status (Low/Okay/Good/High/Flood) — covers tributaries and creeks not in the USGS 33. Available via get_live_data.
 - **Web search via DuckDuckGo**: search for real-time fishing reports, hatch reports, ODFW news, closures, regulations, and any current internet data
 
 ALWAYS call query_wiki first. Then use get_live_data for conditions. Use web_search proactively for:
@@ -349,7 +350,7 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
         lines = ["=== LIVE USGS RIVER DATA ==="]
         from data_fetchers import get_condition, get_tenkara_score, RIVER_INFO
         for river_name, data in live_data.items():
-            if river_name in ("error", "_stocking", "_weather", "_passage"):
+            if river_name in ("error", "_stocking", "_weather", "_passage", "_wkcc_gauges"):
                 continue
             if river_filter and river_filter not in river_name.lower():
                 continue
@@ -394,6 +395,28 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                 lines.append("\n=== BONNEVILLE DAM FISH PASSAGE (recent) ===")
                 for species, count in passage.items():
                     lines.append(f"🐟 {species}: {count:,} adults/day (daily avg)")
+
+        wkcc_gauges = live_data.get("_wkcc_gauges", [])
+        if wkcc_gauges:
+            filtered = [g for g in wkcc_gauges if not river_filter or river_filter in g.get("name", "").lower() or river_filter in g.get("location", "").lower() or river_filter in g.get("drainage", "").lower()]
+            if filtered:
+                lines.append(f"\n=== WKCC GAUGE NETWORK ({len(wkcc_gauges)} stations statewide) ===")
+                for g in filtered:
+                    parts = [f"{g['name']} @ {g['location']}"]
+                    if g.get("flow_cfs") is not None:
+                        trend = "↑" if g.get("flow_trend") == "up" else ("↓" if g.get("flow_trend") == "down" else "")
+                        parts.append(f"{g['flow_cfs']:,.0f} CFS{trend}")
+                    if g.get("height_ft") is not None:
+                        parts.append(f"{g['height_ft']:.2f} ft stage")
+                    if g.get("temp_f") is not None:
+                        parts.append(f"{g['temp_f']:.1f}°F")
+                    if g.get("status"):
+                        parts.append(f"[{g['status']}]")
+                    if g.get("whitewater_class"):
+                        parts.append(f"Class {g['whitewater_class']}")
+                    if g.get("drainage"):
+                        parts.append(f"({g['drainage']} basin)")
+                    lines.append("  " + " | ".join(parts))
 
         try:
             from oregon_gov_data import fetch_ndbc_buoys
