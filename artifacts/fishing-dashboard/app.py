@@ -240,6 +240,16 @@ def api_aqi():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/fish/river-levels")
+def api_river_levels():
+    try:
+        from wkcc_fetcher import fetch_wkcc_levels
+        return jsonify(fetch_wkcc_levels())
+    except Exception as e:
+        log.error("river-levels error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/fish/wildlife")
 def api_wildlife():
     try:
@@ -414,9 +424,11 @@ def api_refresh():
         from air_quality_fetcher import fetch_airnow_aqi, get_fishing_air_quality_summary
         from inaturalist_fetcher import fetch_inaturalist_summary, fetch_recent_fish_obs
         from web_tools import fetch_reddit_multisub, search_fishing_reports_osint
+        from wkcc_fetcher import fetch_wkcc_levels
         from concurrent.futures import ThreadPoolExecutor
 
         fetch_usgs_flows.clear()
+        fetch_wkcc_levels.clear()
         fetch_odfw_stocking.clear()
         fetch_usgs_percentiles.clear()
         fetch_bonneville_passage.clear()
@@ -451,6 +463,7 @@ def api_refresh():
             ex.submit(fetch_drought_by_region)
             ex.submit(get_fishing_air_quality_summary)
             ex.submit(fetch_inaturalist_summary)
+            ex.submit(fetch_wkcc_levels)
 
         return jsonify({"ok": True, "message": "All caches cleared and refreshing"})
     except Exception as e:

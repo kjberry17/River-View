@@ -426,6 +426,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
   <button class="tab-btn" onclick="showTab('hatcheries')">🏭 Hatcheries</button>
   <button class="tab-btn" onclick="showTab('lakes')">🏞️ Lakes</button>
   <button class="tab-btn" id="local-tab-btn" onclick="showTab('local')">📍 Local</button>
+  <button class="tab-btn" onclick="showTab('levels')">📡 All Levels</button>
   <button class="tab-btn" onclick="showTab('buddy')">🎣 The Fisher</button>
 </nav>
 
@@ -697,6 +698,46 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
   <div id="lake-cards" class="card-grid"></div>
 </div>
 
+<!-- ── ALL LEVELS (wkcc.org) ── -->
+<div id="tab-levels" class="tab-section fade-in">
+  <div class="section-head">
+    <div>
+      <div class="section-title"><span>📡</span> Oregon River Levels — 150+ Gauges</div>
+      <div class="section-sub">levels.wkcc.org · Willamette Kayak &amp; Canoe Club · Cached 5 min</div>
+    </div>
+  </div>
+  <div class="filter-bar">
+    <input type="text" id="levels-search" placeholder="Search river or location…" oninput="filterLevels()">
+    <select id="levels-drainage" onchange="filterLevels()">
+      <option value="">All Drainages</option>
+    </select>
+    <select id="levels-status" onchange="filterLevels()">
+      <option value="">All Status</option>
+    </select>
+  </div>
+  <div id="levels-table-wrap" style="overflow-x:auto;">
+    <table class="data-table" id="levels-table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>River / Creek</th>
+          <th>Location</th>
+          <th>Time</th>
+          <th>Flow (CFS)</th>
+          <th>Height (ft)</th>
+          <th>Temp (°F)</th>
+          <th>Drainage</th>
+          <th>Class</th>
+        </tr>
+      </thead>
+      <tbody id="levels-tbody">
+        <tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text3);">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="levels-count" style="font-size:11px;color:var(--text3);margin-top:10px;text-align:right;"></div>
+</div>
+
 <!-- ── AI BUDDY ── -->
 <div id="tab-buddy" class="tab-section fade-in">
   <div class="buddy-layout">
@@ -808,6 +849,7 @@ function showTab(name) {
   if (name === 'coastal' && Object.keys(coastalData).length) renderBuoyChart();
   if (name === 'weather' && Object.keys(weatherData).length) renderWeatherChart();
   if (name === 'lakes' && lakeData.length) renderLakeChart();
+  if (name === 'levels' && !levelsLoaded) loadLevels();
 }
 
 // ── Fetch helpers ──
@@ -892,10 +934,94 @@ async function refreshAll() {
   btn.classList.add('spinning');
   try {
     await fetch('/fish/refresh', { method: 'POST' });
+    levelsLoaded = false;
     await loadAll();
+    if (document.getElementById('tab-levels').classList.contains('active')) loadLevels();
   } finally {
     btn.classList.remove('spinning');
   }
+}
+
+// ── WKCC River Levels ──
+let levelsData = [];
+let levelsLoaded = false;
+
+async function loadLevels() {
+  levelsLoaded = true;
+  try {
+    const data = await apiFetch('/fish/river-levels');
+    if (data.error) { levelsLoaded = false; return; }
+    levelsData = data.gauges || [];
+
+    // Populate filter dropdowns
+    const drSel = document.getElementById('levels-drainage');
+    const stSel = document.getElementById('levels-status');
+    const curDr = drSel.value, curSt = stSel.value;
+    drSel.innerHTML = '<option value="">All Drainages</option>';
+    (data.drainages || []).forEach(d => {
+      const o = document.createElement('option');
+      o.value = d; o.textContent = d;
+      drSel.appendChild(o);
+    });
+    stSel.innerHTML = '<option value="">All Status</option>';
+    (data.statuses || []).forEach(s => {
+      const o = document.createElement('option');
+      o.value = s; o.textContent = s;
+      stSel.appendChild(o);
+    });
+    if (curDr) drSel.value = curDr;
+    if (curSt) stSel.value = curSt;
+
+    renderLevels(levelsData);
+  } catch(e) { levelsLoaded = false; console.error('levels:', e); }
+}
+
+function filterLevels() {
+  const q = (document.getElementById('levels-search').value || '').toLowerCase();
+  const dr = document.getElementById('levels-drainage').value;
+  const st = document.getElementById('levels-status').value;
+  const filtered = levelsData.filter(g => {
+    if (dr && g.drainage !== dr) return false;
+    if (st && g.status !== st) return false;
+    if (q && !g.name.toLowerCase().includes(q) && !g.location.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  renderLevels(filtered);
+}
+
+function renderLevels(gauges) {
+  const tbody = document.getElementById('levels-tbody');
+  if (!gauges.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text3);">No results</td></tr>';
+    document.getElementById('levels-count').textContent = '';
+    return;
+  }
+
+  const trendIcon = t => t === 'up' ? ' <span style="color:#00ff87">↑</span>' : t === 'down' ? ' <span style="color:#ff4757">↓</span>' : '';
+
+  tbody.innerHTML = gauges.map(g => {
+    const statusStyle = `color:${g.status_color};font-weight:700;`;
+    const flowDisp = g.flow_cfs != null
+      ? `${g.flow_cfs.toLocaleString()}${trendIcon(g.flow_trend)}`
+      : g.flow_cfs_raw || '—';
+    const htDisp = g.height_ft != null ? g.height_ft.toFixed(2) : (g.height_ft_raw || '—');
+    const tmpDisp = g.temp_f != null
+      ? `${g.temp_f.toFixed(1)}${trendIcon(g.temp_trend)}`
+      : (g.temp_f_raw || '—');
+    return `<tr>
+      <td style="${statusStyle}">${g.status || '—'}</td>
+      <td style="font-weight:600">${g.name}</td>
+      <td style="color:var(--text2)">${g.location}</td>
+      <td style="color:var(--text3);font-size:11px;white-space:nowrap">${g.datetime}</td>
+      <td style="font-family:var(--mono)">${flowDisp}</td>
+      <td style="font-family:var(--mono)">${htDisp}</td>
+      <td style="font-family:var(--mono)">${tmpDisp}</td>
+      <td style="color:var(--text2)">${g.drainage}</td>
+      <td style="color:var(--text3)">${g.whitewater_class}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('levels-count').textContent = `${gauges.length} gauges`;
 }
 
 // ── Stats bar ──
