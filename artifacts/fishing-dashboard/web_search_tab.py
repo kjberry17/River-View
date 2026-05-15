@@ -277,9 +277,9 @@ def _display_results(results: list, query: str, category: str):
 
         # Send-to-buddy button below each result
         if st.button(
-            f"💬 Ask Buddy about this →",
+            f"💬 Ask The Fisher about this →",
             key=buddy_key,
-            help=f"Send this result to the AI Buddy: {title[:60]}",
+            help=f"Send this result to The Fisher: {title[:60]}",
         ):
             prompt = (
                 f"I found this web result about fishing: \"{title}\" from {domain}.\n\n"
@@ -291,7 +291,7 @@ def _display_results(results: list, query: str, category: str):
                 st.session_state.messages = []
             st.session_state.messages.append({"role": "user", "content": prompt})
             st.session_state["ws_buddy_pending"] = prompt
-            st.info("✅ Sent to the AI Buddy in the sidebar! Scroll up to see the response.")
+            st.info("✅ Sent to The Fisher in the sidebar! Scroll up to see the response.")
 
     st.divider()
     st.caption(

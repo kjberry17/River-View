@@ -71,7 +71,7 @@ def _render_preferences():
                 "wading_comfort": wading_comfort,
                 "catch_and_release": catch_and_release,
             })
-            st.success("✅ Preferences saved! The Buddy will use these for all future recommendations.")
+            st.success("✅ Preferences saved! The Fisher will use these for all future recommendations.")
 
 
 def _render_fishing_log():
@@ -109,7 +109,7 @@ def _render_fishing_log():
                     "fish_caught": fish_caught,
                     "notes": notes,
                 })
-                st.success(f"✅ Trip logged! Ask the Buddy to analyze your patterns from this log.")
+                st.success(f"✅ Trip logged! Ask The Fisher to analyze your patterns from this log.")
                 st.balloons()
 
     st.divider()
@@ -138,8 +138,8 @@ def _render_fishing_log():
     df = pd.DataFrame(df_data)
     st.dataframe(df, width="stretch", hide_index=True)
 
-    if st.button("🧠 Ask Buddy to Analyze My Patterns"):
-        st.info("Go to the sidebar and ask: 'What patterns do you see in my fishing logs?' — The Buddy will analyze your history.")
+    if st.button("🧠 Ask The Fisher to Analyze My Patterns"):
+        st.info("Go to the sidebar and ask: 'What patterns do you see in my fishing logs?' — The Fisher will analyze your history.")
 
 
 def _render_spot_wiki():
@@ -205,7 +205,7 @@ def _render_spot_wiki():
         entries = db.get_wiki_entries(entry_type=type_param, river=river_param)
 
     if not entries:
-        st.info("No wiki entries yet. Add your first one above, or ask the Buddy to save something!")
+        st.info("No wiki entries yet. Add your first one above, or ask The Fisher to save something!")
         _show_example_entries()
         return
 

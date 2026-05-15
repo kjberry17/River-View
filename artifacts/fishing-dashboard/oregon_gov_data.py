@@ -3,6 +3,12 @@ from datetime import datetime
 from cache_utils import ttl_cache
 
 NDBC_BUOYS = {
+    "Columbia River Bar": {
+        "id": "46029",
+        "lat": 46.143, "lon": -124.217,
+        "desc": "20nm W of Columbia River mouth · Critical bar-crossing data",
+        "fishing_zones": ["Columbia River", "Columbia Bar", "Astoria Area"],
+    },
     "Stonewall Banks (Newport)": {
         "id": "46050",
         "lat": 44.794, "lon": -124.524,
@@ -21,11 +27,33 @@ NDBC_BUOYS = {
         "desc": "Southern Oregon offshore · Coos Bay zone",
         "fishing_zones": ["Chetco River", "Coquille River"],
     },
+    "Cape Blanco (Port Orford)": {
+        "id": "46097",
+        "lat": 42.698, "lon": -124.932,
+        "desc": "Southernmost OR offshore · Cape Blanco / Port Orford area",
+        "fishing_zones": ["Chetco River", "Rogue River mouth"],
+    },
+    "Astoria Canyon": {
+        "id": "46248",
+        "lat": 46.007, "lon": -124.306,
+        "desc": "Astoria Canyon area · Nearshore Columbia River approach",
+        "fishing_zones": ["Columbia River", "Astoria", "North Coast"],
+    },
 }
 
 NDBC_URL = "https://www.ndbc.noaa.gov/data/realtime2/{buoy_id}.txt"
 
 NOAA_TIDE_STATIONS = {
+    "Astoria / Columbia River": {
+        "id": "9439040",
+        "lat": 46.207, "lon": -123.769,
+        "desc": "Columbia River mouth — Astoria",
+    },
+    "Garibaldi / Tillamook Bay": {
+        "id": "9437540",
+        "lat": 45.556, "lon": -123.911,
+        "desc": "Tillamook Bay entrance — Wilson, Trask, Tillamook rivers",
+    },
     "South Beach / Newport": {
         "id": "9435380",
         "lat": 44.625, "lon": -124.045,
@@ -36,15 +64,15 @@ NOAA_TIDE_STATIONS = {
         "lat": 43.345, "lon": -124.322,
         "desc": "Coos Bay / Charleston Harbor",
     },
-    "Brookings": {
+    "Port Orford": {
         "id": "9431647",
-        "lat": 42.051, "lon": -124.281,
-        "desc": "Southern Oregon coast — Chetco River mouth",
+        "lat": 42.738, "lon": -124.497,
+        "desc": "Southern Oregon coast — Elk & Sixes rivers",
     },
-    "Astoria / Columbia River": {
-        "id": "9439040",
-        "lat": 46.207, "lon": -123.769,
-        "desc": "Columbia River mouth — Astoria",
+    "Brookings": {
+        "id": "9431698",
+        "lat": 42.043, "lon": -124.285,
+        "desc": "Chetco River mouth — Brookings harbor",
     },
 }
 
