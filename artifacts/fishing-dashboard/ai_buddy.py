@@ -23,25 +23,10 @@ except ImportError:
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 MODELS = {
-    "🆓 GPT-OSS 120B (Free)": "openai/gpt-oss-120b:free",
-    "🆓 Nemotron Super 120B (Free)": "nvidia/nemotron-3-super-120b-a12b:free",
-    "🆓 Gemma 2 9B (Free)": "google/gemma-2-9b-it:free",
-    "🆓 Llama 3.3 70B (Free)": "meta-llama/llama-3.3-70b-instruct:free",
-    "🆓 DeepSeek Chat (Free)": "deepseek/deepseek-chat:free",
-    "🆓 MiniMax M2.5 (Free)": "minimax/minimax-m2.5:free",
-    "🆓 Qwen3 Coder (Free)": "qwen/qwen3-coder:free",
-    "🆓 Gemma 3 12B (Free)": "google/gemma-3-12b-it:free",
-    "🆓 Phi-4 Mini (Free)": "microsoft/phi-4-mini-instruct:free",
-    "🆓 Ring 2.6 1T (Free)": "inclusionai/ring-2.6-1t:free",
-    "🆓 GLM-4.5 Air (Free)": "z-ai/glm-4.5-air:free",
-    "🆓 Trinity Large (Free)": "arcee-ai/trinity-large-thinking:free",
-    "🆓 DeepSeek V4 Flash (Free)": "deepseek/deepseek-v4-flash:free",
-    "🆓 Gemma 4 31B (Free)": "google/gemma-4-31b-it:free",
-    "✨ Gemini 2.5 Flash": "google/gemini-2.5-flash",
     "⚡ DeepSeek V4 Flash": "deepseek/deepseek-v4-flash",
 }
 
-FREE_FALLBACK = "deepseek/deepseek-chat:free"
+FREE_FALLBACK = "deepseek/deepseek-v4-flash:free"
 
 SYSTEM_PROMPT = """You are a deeply knowledgeable, seasoned Oregon fly and tenkara fishing guide named "The Fisher".
 
