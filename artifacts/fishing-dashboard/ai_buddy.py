@@ -347,7 +347,7 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
         include_weather = args.get("include_weather", True)
         include_passage = args.get("include_passage", False)
 
-        lines = ["=== LIVE USGS RIVER DATA ==="]
+        lines = ["=== LIVE RIVER DATA (USGS + WKCC) ==="]
         from data_fetchers import get_condition, get_tenkara_score, RIVER_INFO
         for river_name, data in live_data.items():
             if river_name in ("error", "_stocking", "_weather", "_passage", "_wkcc_gauges"):
@@ -361,7 +361,12 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                 tenkara = get_tenkara_score(river_name, cfs)
                 temp_f = data.get("temp_f")
                 temp_str = f", Temp: {temp_f:.1f}°F" if temp_f is not None else ""
-                source = "📡 USGS live" if data.get("source") == "usgs_live" else "💧 spring-fed est."
+                if data.get("source") == "usgs_live":
+                    source = "📡 USGS live"
+                elif data.get("source") == "wkcc_live":
+                    source = "📡 WKCC live"
+                else:
+                    source = "💧 spring-fed est."
                 info = RIVER_INFO.get(river_name, {})
                 species = ", ".join(info.get("species", []))
                 lines.append(

@@ -243,8 +243,27 @@ def api_aqi():
 @app.route("/fish/river-levels")
 def api_river_levels():
     try:
+        from flask import request as freq
         from wkcc_fetcher import fetch_wkcc_levels
-        return jsonify(fetch_wkcc_levels())
+        from data_fetchers import filter_gauges_for_river_system
+
+        river = (freq.args.get("river") or "").strip()
+        payload = fetch_wkcc_levels()
+        if not river:
+            return jsonify(payload)
+
+        gauges = payload.get("gauges", [])
+        filtered_gauges = filter_gauges_for_river_system(gauges, river)
+        drainages = sorted({g.get("drainage", "") for g in filtered_gauges if g.get("drainage")})
+        statuses = sorted({g.get("status", "") for g in filtered_gauges if g.get("status")})
+        return jsonify({
+            "source": payload.get("source"),
+            "count": len(filtered_gauges),
+            "drainages": drainages,
+            "statuses": statuses,
+            "gauges": filtered_gauges,
+            "river_filter": river,
+        })
     except Exception as e:
         log.error("river-levels error: %s", e)
         return jsonify({"error": str(e)}), 500
@@ -420,7 +439,13 @@ def api_wiki_save():
 @app.route("/fish/refresh", methods=["POST"])
 def api_refresh():
     try:
-        from data_fetchers import fetch_usgs_flows, fetch_odfw_stocking, fetch_usgs_percentiles
+        from data_fetchers import (
+            fetch_usgs_flows,
+            fetch_odfw_stocking,
+            fetch_usgs_percentiles,
+            fetch_usgs_site_catalog,
+            fetch_usgs_site_values,
+        )
         from fish_passage import fetch_bonneville_passage, fetch_all_dams_passage
         from weather_fetchers import fetch_nws_weather, fetch_nws_marine
         from oregon_gov_data import fetch_ndbc_buoys, fetch_noaa_tides
@@ -435,6 +460,8 @@ def api_refresh():
         from concurrent.futures import ThreadPoolExecutor
 
         fetch_usgs_flows.clear()
+        fetch_usgs_site_catalog.clear()
+        fetch_usgs_site_values.clear()
         fetch_wkcc_levels.clear()
         fetch_odfw_stocking.clear()
         fetch_usgs_percentiles.clear()
@@ -459,6 +486,7 @@ def api_refresh():
 
         with ThreadPoolExecutor(max_workers=8) as ex:
             ex.submit(fetch_usgs_flows)
+            ex.submit(fetch_usgs_site_catalog)
             ex.submit(fetch_usgs_percentiles)
             ex.submit(fetch_bonneville_passage)
             ex.submit(fetch_nws_weather)

@@ -1,8 +1,10 @@
 import requests
+import re
 from datetime import datetime
 from cache_utils import ttl_cache
 
 USGS_API = "https://waterservices.usgs.gov/nwis/iv/"
+USGS_SITE_API = "https://waterservices.usgs.gov/nwis/site/"
 
 OREGON_GAGE_IDS = {
     "Deschutes River": "14103000",
@@ -165,59 +167,384 @@ TYPICAL_RANGES = {
 
 IDEAL_TEMP_RANGE = (50, 68)
 
+RIVER_ALIAS_OVERRIDES = {
+    "McKenzie River": ["mckenzie", "south fork mckenzie", "sf mckenzie", "so fk mckenzie"],
+    "Middle Fork Willamette": ["middle fork willamette", "mf willamette"],
+    "North Santiam River": ["north santiam", "n santiam", "nf santiam"],
+    "South Santiam River": ["south santiam", "s santiam", "sf santiam"],
+    "North Umpqua River": ["north umpqua", "n umpqua", "nf umpqua"],
+    "South Umpqua River": ["south umpqua", "s umpqua", "sf umpqua"],
+}
+
+_RIVER_NAME_STOP_WORDS = {"river", "creek", "the"}
+_AMBIGUOUS_SINGLE_WORD_ALIASES = {"fall", "long", "middle", "north", "south"}
+
+
+def _normalize_match_text(text: str) -> str:
+    cleaned = (text or "").lower().replace("(est)", " ")
+    cleaned = re.sub(r"\bsouth\s+fork\b", "sf", cleaned)
+    cleaned = re.sub(r"\bso\s*fk\b", "sf", cleaned)
+    cleaned = re.sub(r"\bs\s*fk\b", "sf", cleaned)
+    cleaned = re.sub(r"\bnorth\s+fork\b", "nf", cleaned)
+    cleaned = re.sub(r"\bn\s*fk\b", "nf", cleaned)
+    cleaned = re.sub(r"\bmiddle\s+fork\b", "mf", cleaned)
+    cleaned = re.sub(r"\bm\s*fk\b", "mf", cleaned)
+    cleaned = re.sub(r"[^a-z0-9]+", " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _build_river_match_aliases() -> dict[str, set[str]]:
+    aliases: dict[str, set[str]] = {}
+    for river_name in RIVER_COORDS.keys():
+        base = _normalize_match_text(river_name)
+        alias_set = {base} if base else set()
+        trimmed = " ".join(w for w in base.split() if w not in _RIVER_NAME_STOP_WORDS)
+        if trimmed:
+            tokens = trimmed.split()
+            if len(tokens) >= 2 or (len(tokens) == 1 and tokens[0] not in _AMBIGUOUS_SINGLE_WORD_ALIASES):
+                alias_set.add(trimmed)
+        for extra in RIVER_ALIAS_OVERRIDES.get(river_name, []):
+            norm_extra = _normalize_match_text(extra)
+            if norm_extra:
+                alias_set.add(norm_extra)
+        aliases[river_name] = alias_set
+    return aliases
+
+
+RIVER_MATCH_ALIASES = _build_river_match_aliases()
+
+
+def _match_river_systems(name: str, location: str = "", drainage: str = "") -> list[str]:
+    haystack = _normalize_match_text(" ".join(filter(None, [name, location, drainage])))
+    if not haystack:
+        return []
+    matched = []
+    for river_name, aliases in RIVER_MATCH_ALIASES.items():
+        if any(alias and alias in haystack for alias in aliases):
+            matched.append(river_name)
+    return matched
+
+
+def filter_gauges_for_river_system(gauges: list[dict], river_query: str) -> list[dict]:
+    norm_query = _normalize_match_text(river_query)
+    if not norm_query:
+        return gauges
+
+    target_rivers = []
+    for river_name, aliases in RIVER_MATCH_ALIASES.items():
+        if any(norm_query in alias or alias in norm_query for alias in aliases):
+            target_rivers.append(river_name)
+
+    filtered = []
+    for gauge in gauges:
+        matched_rivers = _match_river_systems(
+            name=gauge.get("name", ""),
+            location=gauge.get("location", ""),
+            drainage=gauge.get("drainage", ""),
+        )
+        if any(r in matched_rivers for r in target_rivers):
+            filtered.append(gauge)
+            continue
+
+        combined = _normalize_match_text(
+            " ".join(
+                filter(
+                    None,
+                    [gauge.get("name", ""), gauge.get("location", ""), gauge.get("drainage", "")],
+                )
+            )
+        )
+        if norm_query and norm_query in combined:
+            filtered.append(gauge)
+    return filtered
+
+
+def _safe_float(value):
+    try:
+        if value in (None, "", "-999999"):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _latest_numeric_value(values: list[dict]) -> tuple[float | None, str]:
+    for point in reversed(values or []):
+        numeric = _safe_float(point.get("value"))
+        if numeric is not None:
+            return numeric, point.get("dateTime", "")
+    return None, ""
+
+
+def _parse_rdb_rows(raw_text: str) -> tuple[list[str], list[list[str]]]:
+    lines = [ln for ln in (raw_text or "").splitlines() if ln and not ln.startswith("#")]
+    if len(lines) < 3:
+        return [], []
+    header = lines[0].split("\t")
+    rows = [ln.split("\t") for ln in lines[2:]]
+    return header, rows
+
+
+@ttl_cache(ttl=86400)
+def fetch_usgs_site_catalog() -> list[dict]:
+    try:
+        resp = requests.get(
+            USGS_SITE_API,
+            params={
+                "format": "rdb",
+                "stateCd": "or",
+                "siteType": "ST",
+                "siteStatus": "active",
+                "hasDataTypeCd": "iv",
+                "parameterCd": "00060",
+            },
+            timeout=25,
+        )
+        resp.raise_for_status()
+        header, rows = _parse_rdb_rows(resp.text)
+        if not header:
+            return []
+
+        idx_site = header.index("site_no") if "site_no" in header else None
+        idx_name = header.index("station_nm") if "station_nm" in header else None
+        idx_lat = header.index("dec_lat_va") if "dec_lat_va" in header else None
+        idx_lon = header.index("dec_long_va") if "dec_long_va" in header else None
+        idx_type = header.index("site_tp_cd") if "site_tp_cd" in header else None
+        if idx_site is None or idx_name is None:
+            return []
+
+        catalog = []
+        for cols in rows:
+            if len(cols) <= idx_name:
+                continue
+            site_id = cols[idx_site].strip() if len(cols) > idx_site else ""
+            station_name = cols[idx_name].strip() if len(cols) > idx_name else ""
+            site_type = cols[idx_type].strip() if idx_type is not None and len(cols) > idx_type else ""
+            if not site_id or not station_name:
+                continue
+            if site_type and not site_type.startswith("ST"):
+                continue
+            catalog.append(
+                {
+                    "site_id": site_id,
+                    "station_name": station_name,
+                    "lat": _safe_float(cols[idx_lat]) if idx_lat is not None and len(cols) > idx_lat else None,
+                    "lon": _safe_float(cols[idx_lon]) if idx_lon is not None and len(cols) > idx_lon else None,
+                }
+            )
+        catalog.sort(key=lambda x: x["site_id"])
+        return catalog
+    except Exception:
+        return []
+
+
+@ttl_cache(ttl=300)
+def fetch_usgs_site_values(site_ids_csv: str) -> dict:
+    site_ids = [s.strip() for s in (site_ids_csv or "").split(",") if s.strip()]
+    if not site_ids:
+        return {}
+
+    values_by_site: dict[str, dict] = {}
+    chunk_size = 80
+    for start in range(0, len(site_ids), chunk_size):
+        chunk = site_ids[start:start + chunk_size]
+        try:
+            resp = requests.get(
+                USGS_API,
+                params={
+                    "format": "json",
+                    "sites": ",".join(chunk),
+                    "parameterCd": "00060,00010,00065,63680,00300,00400,00095",
+                    "siteStatus": "active",
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception:
+            continue
+
+        for ts in payload.get("value", {}).get("timeSeries", []):
+            site_code = ts.get("sourceInfo", {}).get("siteCode", [{}])[0].get("value")
+            if not site_code:
+                continue
+            param_code = ts.get("variable", {}).get("variableCode", [{}])[0].get("value")
+            if not param_code:
+                continue
+            numeric, dt_str = _latest_numeric_value(ts.get("values", [{}])[0].get("value", []))
+            if numeric is None:
+                continue
+
+            site_entry = values_by_site.setdefault(
+                site_code,
+                {
+                    "site_id": site_code,
+                    "station_name": ts.get("sourceInfo", {}).get("siteName", ""),
+                    "datetime": dt_str,
+                    "source": "usgs_live",
+                },
+            )
+            if dt_str and not site_entry.get("datetime"):
+                site_entry["datetime"] = dt_str
+
+            if param_code == "00060":
+                site_entry["cfs"] = numeric
+            elif param_code == "00010":
+                site_entry["temp_c"] = numeric
+                site_entry["temp_f"] = round(numeric * 9 / 5 + 32, 1)
+            elif param_code == "00065":
+                site_entry["stage_ft"] = numeric
+            elif param_code == "63680":
+                site_entry["turbidity_fnu"] = numeric
+                site_entry["clarity"] = get_turbidity_label(numeric)
+            elif param_code == "00300":
+                site_entry["dissolved_oxygen_mgl"] = numeric
+                site_entry["do_condition"] = get_do_condition(numeric)
+            elif param_code == "00400":
+                site_entry["ph"] = numeric
+                site_entry["ph_condition"] = get_ph_condition(numeric)
+            elif param_code == "00095":
+                site_entry["specific_conductance_uscm"] = numeric
+    return values_by_site
+
 
 @ttl_cache(ttl=300)
 def fetch_usgs_flows():
-    site_ids = ",".join(OREGON_GAGE_IDS.values())
     results = {}
     try:
-        resp = requests.get(USGS_API, params={
-            "format": "json",
-            "sites": site_ids,
-            "parameterCd": "00060,00010,00065,63680,00300,00400,00095",
-            "siteStatus": "active",
-        }, timeout=12)
-        resp.raise_for_status()
-        data = resp.json()
-        for ts in data.get("value", {}).get("timeSeries", []):
-            site_code = ts["sourceInfo"]["siteCode"][0]["value"]
-            param_code = ts["variable"]["variableCode"][0]["value"]
-            values = ts.get("values", [{}])[0].get("value", [])
-            if not values:
+        catalog = fetch_usgs_site_catalog()
+        site_matches = {}
+        for site in catalog:
+            matched = _match_river_systems(name=site.get("station_name", ""))
+            if matched:
+                site_matches[site["site_id"]] = matched
+
+        primary_ids = set(OREGON_GAGE_IDS.values())
+        selected_site_ids = sorted(set(site_matches.keys()) | primary_ids)
+        site_ids_csv = ",".join(selected_site_ids)
+        site_values = fetch_usgs_site_values(site_ids_csv)
+        catalog_by_id = {site["site_id"]: site for site in catalog}
+        gauges_by_river: dict[str, list[dict]] = {river: [] for river in RIVER_COORDS.keys()}
+
+        for site_id, site_data in site_values.items():
+            site_meta = catalog_by_id.get(site_id, {})
+            station_name = site_data.get("station_name") or site_meta.get("station_name", "")
+            if not station_name:
                 continue
-            latest = values[-1]
-            raw_val = latest["value"]
-            if raw_val == "-999999" or raw_val is None:
+
+            matched_rivers = site_matches.get(site_id) or _match_river_systems(name=station_name)
+            if not matched_rivers:
                 continue
-            try:
-                val = float(raw_val)
-            except (ValueError, TypeError):
-                continue
-            dt_str = latest.get("dateTime", "")
-            for river, gid in OREGON_GAGE_IDS.items():
-                if gid == site_code:
-                    if river not in results:
-                        results[river] = {"site_id": site_code, "datetime": dt_str, "source": "usgs_live"}
-                    if param_code == "00060":
-                        results[river]["cfs"] = val
-                    elif param_code == "00010":
-                        results[river]["temp_c"] = val
-                        results[river]["temp_f"] = round(val * 9 / 5 + 32, 1)
-                    elif param_code == "00065":
-                        results[river]["stage_ft"] = val
-                    elif param_code == "63680":
-                        results[river]["turbidity_fnu"] = val
-                        results[river]["clarity"] = get_turbidity_label(val)
-                    elif param_code == "00300":
-                        results[river]["dissolved_oxygen_mgl"] = val
-                        results[river]["do_condition"] = get_do_condition(val)
-                    elif param_code == "00400":
-                        results[river]["ph"] = val
-                        results[river]["ph_condition"] = get_ph_condition(val)
-                    elif param_code == "00095":
-                        results[river]["specific_conductance_uscm"] = val
+
+            gauge = {
+                "id": f"USGS-{site_id}",
+                "source": "USGS",
+                "site_id": site_id,
+                "name": station_name,
+                "location": station_name,
+                "drainage": "",
+                "status": "",
+                "status_color": "#00ccff",
+                "datetime": site_data.get("datetime", ""),
+                "flow_cfs": site_data.get("cfs"),
+                "height_ft": site_data.get("stage_ft"),
+                "temp_f": site_data.get("temp_f"),
+                "flow_trend": "stable",
+                "temp_trend": "stable",
+                "whitewater_class": "",
+                "lat": site_meta.get("lat"),
+                "lon": site_meta.get("lon"),
+                "turbidity_fnu": site_data.get("turbidity_fnu"),
+                "clarity": site_data.get("clarity"),
+                "dissolved_oxygen_mgl": site_data.get("dissolved_oxygen_mgl"),
+                "do_condition": site_data.get("do_condition"),
+                "ph": site_data.get("ph"),
+                "ph_condition": site_data.get("ph_condition"),
+                "specific_conductance_uscm": site_data.get("specific_conductance_uscm"),
+            }
+            for river_name in matched_rivers:
+                gauges_by_river[river_name].append(gauge.copy())
     except Exception as e:
         results["error"] = str(e)
+        gauges_by_river = {river: [] for river in RIVER_COORDS.keys()}
+
+    try:
+        from wkcc_fetcher import fetch_wkcc_levels
+        wkcc_gauges = fetch_wkcc_levels().get("gauges", [])
+    except Exception:
+        wkcc_gauges = []
+
+    for wk in wkcc_gauges:
+        matched_rivers = _match_river_systems(
+            name=wk.get("name", ""),
+            location=wk.get("location", ""),
+            drainage=wk.get("drainage", ""),
+        )
+        if not matched_rivers:
+            continue
+        wkcc_id = f"WKCC-{_normalize_match_text(wk.get('name', ''))}-{_normalize_match_text(wk.get('location', ''))}"
+        gauge = {
+            "id": wkcc_id,
+            "source": "WKCC",
+            "site_id": None,
+            "name": wk.get("name", ""),
+            "location": wk.get("location", ""),
+            "drainage": wk.get("drainage", ""),
+            "status": wk.get("status", ""),
+            "status_color": wk.get("status_color", "#888888"),
+            "datetime": wk.get("datetime", ""),
+            "flow_cfs": wk.get("flow_cfs"),
+            "height_ft": wk.get("height_ft"),
+            "temp_f": wk.get("temp_f"),
+            "flow_trend": wk.get("flow_trend", "stable"),
+            "temp_trend": wk.get("temp_trend", "stable"),
+            "whitewater_class": wk.get("whitewater_class", ""),
+            "lat": None,
+            "lon": None,
+        }
+        for river_name in matched_rivers:
+            gauges_by_river.setdefault(river_name, []).append(gauge.copy())
+
+    for river_name, gauge_list in gauges_by_river.items():
+        unique = {}
+        for gauge in gauge_list:
+            gauge_id = gauge.get("id")
+            if gauge_id:
+                unique[gauge_id] = gauge
+        deduped = list(unique.values())
+        deduped.sort(
+            key=lambda g: (
+                0 if g.get("source") == "USGS" else 1,
+                0 if g.get("flow_cfs") is not None else 1,
+                g.get("name", ""),
+            )
+        )
+        primary_site_id = OREGON_GAGE_IDS.get(river_name)
+        primary = next((g for g in deduped if g.get("site_id") == primary_site_id), None) if primary_site_id else None
+        if primary is None and deduped:
+            primary = deduped[0]
+
+        if primary:
+            results[river_name] = {
+                "cfs": primary.get("flow_cfs"),
+                "temp_f": primary.get("temp_f"),
+                "temp_c": round((primary["temp_f"] - 32) * 5 / 9, 1) if primary.get("temp_f") is not None else None,
+                "stage_ft": primary.get("height_ft"),
+                "datetime": primary.get("datetime"),
+                "site_id": primary.get("site_id"),
+                "source": "usgs_live" if primary.get("source") == "USGS" else "wkcc_live",
+                "clarity": primary.get("clarity"),
+                "turbidity_fnu": primary.get("turbidity_fnu"),
+                "dissolved_oxygen_mgl": primary.get("dissolved_oxygen_mgl"),
+                "do_condition": primary.get("do_condition"),
+                "ph": primary.get("ph"),
+                "ph_condition": primary.get("ph_condition"),
+                "specific_conductance_uscm": primary.get("specific_conductance_uscm"),
+                "gauges": deduped,
+                "primary_gauge": primary,
+            }
+        elif river_name not in results:
+            results[river_name] = {"gauges": [], "primary_gauge": None}
 
     for river, meta in SPRING_FED_RIVERS.items():
         results[river] = {
@@ -228,6 +555,8 @@ def fetch_usgs_flows():
             "note": meta["note"],
             "temp_f": meta.get("temp_f"),
             "temp_c": round((meta["temp_f"] - 32) * 5 / 9, 1) if meta.get("temp_f") else None,
+            "gauges": [],
+            "primary_gauge": None,
         }
     return results
 
@@ -291,6 +620,8 @@ def build_river_summary(flows: dict, stocking: list) -> list:
         temp_cond = get_temp_condition(temp_f)
         stage_ft = flow_data.get("stage_ft") if isinstance(flow_data, dict) else None
         clarity = flow_data.get("clarity") if isinstance(flow_data, dict) else get_turbidity_label(None)
+        gauges = flow_data.get("gauges", []) if isinstance(flow_data, dict) else []
+        primary_gauge = flow_data.get("primary_gauge") if isinstance(flow_data, dict) else None
         info = RIVER_INFO.get(river, {})
         summary.append({
             "river": river,
@@ -313,6 +644,9 @@ def build_river_summary(flows: dict, stocking: list) -> list:
             "ph": flow_data.get("ph") if isinstance(flow_data, dict) else None,
             "ph_condition": flow_data.get("ph_condition") if isinstance(flow_data, dict) else None,
             "specific_conductance_uscm": flow_data.get("specific_conductance_uscm") if isinstance(flow_data, dict) else None,
+            "gauges": gauges,
+            "gauge_count": len(gauges),
+            "primary_gauge": primary_gauge,
             "species": info.get("species", []),
             "gear": info.get("gear", []),
             "region": info.get("region", "Oregon"),

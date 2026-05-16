@@ -109,6 +109,7 @@ main{padding:20px 24px 40px;overflow-x:hidden;min-width:0;}
 /* ── ECharts containers ── */
 .chart-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;min-width:0;overflow:hidden;}
 .chart-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.chart-toggle-btn{margin-left:auto;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.28);color:var(--cyan);font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;cursor:pointer;}
 .echart{width:100%;min-height:320px;}
 .echart-tall{width:100%;min-height:480px;}
 .echart-sm{width:100%;min-height:220px;}
@@ -116,6 +117,10 @@ main{padding:20px 24px 40px;overflow-x:hidden;min-width:0;}
 /* ── Map ── */
 #map{width:100%;height:540px;border-radius:12px;border:1px solid var(--border);overflow:hidden;}
 .leaflet-container{background:#07111f;}
+.leaflet-popup-content{max-height:320px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(0,180,255,0.4) transparent;}
+.leaflet-popup-content::-webkit-scrollbar{width:5px;}
+.leaflet-popup-content::-webkit-scrollbar-thumb{background:rgba(0,180,255,0.4);border-radius:4px;}
+.leaflet-popup-content::-webkit-scrollbar-track{background:transparent;}
 
 /* ── Two-col ── */
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
@@ -523,7 +528,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
     </label>
   </div>
   <div class="chart-wrap">
-    <div class="chart-title">📊 Flow Comparison — All Rivers (CFS)</div>
+    <div class="chart-title">📊 Flow Comparison — All Rivers (CFS)<button id="rivers-more-btn" class="chart-toggle-btn" onclick="toggleRiversCap()" style="display:none;">Show more</button></div>
     <div id="flow-chart" class="echart-tall"></div>
   </div>
   <div class="two-col">
@@ -585,7 +590,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
   <div id="passage-hero" class="passage-hero"></div>
   <div class="two-col">
     <div class="chart-wrap">
-      <div class="chart-title">📊 Current vs 7-Day Average</div>
+      <div class="chart-title">📊 Current vs 7-Day Average<button id="passage-more-btn" class="chart-toggle-btn" onclick="togglePassageCap()" style="display:none;">Show more</button></div>
       <div id="passage-chart" class="echart"></div>
     </div>
     <div class="chart-wrap">
@@ -614,7 +619,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
     </div>
   </div>
   <div class="chart-wrap">
-    <div class="chart-title">🌊 Buoy Conditions Comparison</div>
+    <div class="chart-title">🌊 Buoy Conditions Comparison<button id="buoy-more-btn" class="chart-toggle-btn" onclick="toggleBuoyCap()" style="display:none;">Show more</button></div>
     <div id="buoy-chart" class="echart-sm"></div>
   </div>
   <div class="chart-wrap" style="background:rgba(0,30,60,.4);border-color:rgba(0,150,200,.2);">
@@ -637,7 +642,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
     </div>
   </div>
   <div class="chart-wrap">
-    <div class="chart-title">🎯 Fishing Score by Zone</div>
+    <div class="chart-title">🎯 Fishing Score by Zone<button id="weather-more-btn" class="chart-toggle-btn" onclick="toggleWeatherCap()" style="display:none;">Show more</button></div>
     <div id="weather-chart" class="echart-sm"></div>
   </div>
   <div id="weather-cards" class="weather-grid"></div>
@@ -710,7 +715,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
     </div>
   </div>
   <div class="chart-wrap">
-    <div class="chart-title">🌡️ Lake Surface Temperatures — Live USGS or Seasonal Estimate</div>
+    <div class="chart-title">🌡️ Lake Surface Temperatures — Live USGS or Seasonal Estimate<button id="lakes-more-btn" class="chart-toggle-btn" onclick="toggleLakesCap()" style="display:none;">Show more</button></div>
     <div id="lake-temp-chart" class="echart"></div>
   </div>
   <div class="filter-bar">
@@ -734,7 +739,7 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
     </div>
   </div>
   <div class="chart-wrap" id="levels-chart-wrap" style="margin-bottom:16px;">
-    <div class="chart-title">📊 Flow Rates — Top 40 Rivers by CFS</div>
+    <div class="chart-title">📊 Flow Rates — Top 40 Rivers by CFS<button id="levels-more-btn" class="chart-toggle-btn" onclick="toggleLevelsCap()" style="display:none;">Show more</button></div>
     <div id="levels-flow-chart" class="echart-tall"></div>
   </div>
   <div class="filter-bar">
@@ -850,6 +855,7 @@ let map = null;
 let flowChart = null, tempChart = null, passageChart = null, weatherChart = null, buoyChart = null;
 let regionChart = null, tenkaraPie = null, tempDistChart = null, stockingChart = null;
 let lakeChart = null;
+const mobileCapState = { rivers: false, levels: false, lakes: false, passage: false, buoy: false, weather: false };
 
 const CONDITION_COLORS = {
   good:    '#00ff87',
@@ -858,6 +864,39 @@ const CONDITION_COLORS = {
   poor:    '#ff4757',
   unknown: '#3d6480',
 };
+
+function setMobileCapButton(buttonId, isMobile, totalCount, cappedCount, isExpanded) {
+  const button = document.getElementById(buttonId);
+  if (!button) return;
+  const hasMore = totalCount > cappedCount;
+  button.style.display = (isMobile && hasMore) ? 'inline-flex' : 'none';
+  if (button.style.display !== 'none') button.textContent = isExpanded ? 'Show less' : 'Show more';
+}
+
+function toggleRiversCap() {
+  mobileCapState.rivers = !mobileCapState.rivers;
+  renderFlowChart(filteredRivers.length ? filteredRivers : riverData);
+}
+function toggleLevelsCap() {
+  mobileCapState.levels = !mobileCapState.levels;
+  renderLevelsChart();
+}
+function toggleLakesCap() {
+  mobileCapState.lakes = !mobileCapState.lakes;
+  renderLakeChart();
+}
+function togglePassageCap() {
+  mobileCapState.passage = !mobileCapState.passage;
+  renderPassageCharts();
+}
+function toggleBuoyCap() {
+  mobileCapState.buoy = !mobileCapState.buoy;
+  renderBuoyChart();
+}
+function toggleWeatherCap() {
+  mobileCapState.weather = !mobileCapState.weather;
+  renderWeatherChart();
+}
 
 // ── Tab nav ──
 function showTab(name) {
@@ -1018,7 +1057,7 @@ function filterLevels() {
   const filtered = levelsData.filter(g => {
     if (dr && g.drainage !== dr) return false;
     if (st && g.status !== st) return false;
-    if (q && !g.name.toLowerCase().includes(q) && !g.location.toLowerCase().includes(q)) return false;
+    if (q && !g.name.toLowerCase().includes(q) && !g.location.toLowerCase().includes(q) && !(g.drainage || '').toLowerCase().includes(q)) return false;
     return true;
   });
   renderLevels(filtered);
@@ -1067,11 +1106,13 @@ function renderLevelsChart() {
 
   const isMobile = window.innerWidth < 768;
   const flowLimit = isMobile ? 10 : 40;
+  const isExpanded = mobileCapState.levels;
 
-  const withFlow = levelsData
+  const allWithFlow = levelsData
     .filter(g => g.flow_cfs != null && g.flow_cfs > 0)
-    .sort((a, b) => b.flow_cfs - a.flow_cfs)
-    .slice(0, flowLimit);
+    .sort((a, b) => b.flow_cfs - a.flow_cfs);
+  const withFlow = (isMobile && !isExpanded) ? allWithFlow.slice(0, flowLimit) : allWithFlow;
+  setMobileCapButton('levels-more-btn', isMobile, allWithFlow.length, flowLimit, isExpanded);
 
   const STATUS_ECHART_COLORS = {
     'Good': '#00ff87', 'Okay': '#00cc66', 'Great': '#00ffcc',
@@ -1150,33 +1191,32 @@ function renderMap() {
     map.eachLayer(l => { if (l instanceof L.CircleMarker || l instanceof L.Marker) map.removeLayer(l); });
   }
 
-  // Build WKCC lookup: key = normalized river name → array of gauges
-  const wkccByRiver = {};
-  levelsData.forEach(g => {
-    const norm = g.name.replace(/\s*\(est\)/i, '').toLowerCase().trim();
-    (wkccByRiver[norm] = wkccByRiver[norm] || []).push(g);
-  });
-
-  function findWkccGauges(riverName) {
-    const norm = riverName.toLowerCase()
-      .replace(/ river$/i, '').replace(/ creek$/i, '')
-      .replace(/ fork$/i, '').trim();
-    return Object.entries(wkccByRiver)
-      .filter(([k]) => k.includes(norm) || norm.includes(k))
-      .flatMap(([, v]) => v)
-      .slice(0, 3);
-  }
-
   riverData.forEach(river => {
     const color = CONDITION_COLORS[river.condition.status] || '#3d6480';
     const radius = river.condition.status === 'good' ? 10 : 8;
     const cfsStr = river.cfs != null ? `${Math.round(river.cfs).toLocaleString()} CFS` : 'No data';
     const tempStr = river.temp_f != null ? `<br>🌡️ ${river.temp_f.toFixed(1)}°F` : '';
     const stageStr = river.stage_ft != null ? `<br>📏 Stage: ${river.stage_ft.toFixed(2)} ft` : '';
-    const wkccGauges = findWkccGauges(river.river);
-    const wkccStr = wkccGauges.length
+    const allGauges = Array.isArray(river.gauges) ? river.gauges : [];
+    const sortedGauges = [...allGauges].sort((a, b) => {
+      const aSource = a.source === 'USGS' ? 0 : 1;
+      const bSource = b.source === 'USGS' ? 0 : 1;
+      if (aSource !== bSource) return aSource - bSource;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    const gaugesStr = sortedGauges.length
       ? '<div style="font-size:10px;color:#7da8cc;margin-top:6px;border-top:1px solid #1e3a5f;padding-top:4px;">' +
-        wkccGauges.map(g => `📡 ${g.location}: ${g.flow_cfs != null ? g.flow_cfs.toLocaleString()+' CFS' : '—'} ${g.height_ft != null ? '/ '+g.height_ft.toFixed(2)+' ft' : ''} <span style="color:${g.status_color}">${g.status}</span>`).join('<br>') +
+        `<div style="margin-bottom:4px;color:#9fd2ff;">📡 ${sortedGauges.length} gauges linked</div>` +
+        sortedGauges.map(g => {
+          const srcColor = g.source === 'USGS' ? '#00ccff' : '#7da8cc';
+          const srcLabel = g.source || 'Gauge';
+          const namePart = g.location || g.name || 'Unknown';
+          const flowPart = g.flow_cfs != null ? `${Math.round(g.flow_cfs).toLocaleString()} CFS` : '—';
+          const stagePart = g.height_ft != null ? ` / ${g.height_ft.toFixed(2)} ft` : '';
+          const tempPart = g.temp_f != null ? ` / ${g.temp_f.toFixed(1)}°F` : '';
+          const statusPart = g.status ? ` <span style="color:${g.status_color || '#9aa'}">${g.status}</span>` : '';
+          return `<span style="color:${srcColor};font-weight:700">${srcLabel}</span> ${namePart}: ${flowPart}${stagePart}${tempPart}${statusPart}`;
+        }).join('<br>') +
         '</div>'
       : '';
     const species = (river.species || []).slice(0, 3).join(', ');
@@ -1193,12 +1233,12 @@ function renderMap() {
           🐟 ${species}<br>🎣 ${gear}
         </div>
         <div style="font-size:10px;color:#e67e22;margin-top:4px;">⚖️ ${(river.regulations||'').substring(0,70)}</div>
-        ${wkccStr}
+        ${gaugesStr}
       </div>`;
 
     L.circleMarker([river.lat, river.lon], {
       radius, color, fillColor: color, fillOpacity: 0.85, weight: 2,
-    }).bindPopup(popup, { maxWidth: 260 })
+    }).bindPopup(popup, { maxWidth: 280, maxHeight: 340 })
       .bindTooltip(`${river.river} — ${river.condition.emoji || ''} ${cfsStr}`, { sticky: true })
       .addTo(map);
   });
@@ -1238,8 +1278,10 @@ function renderRiverCards(data) {
     const cfsStr = r.cfs != null ? `${Math.round(r.cfs).toLocaleString()}` : '—';
     const unit = r.cfs != null ? ' CFS' : '';
     const tempStr = r.temp_f != null ? `${r.temp_f.toFixed(1)}°F` : null;
+    const gaugeCount = r.gauge_count || (Array.isArray(r.gauges) ? r.gauges.length : 0);
     const pills = [
       tempStr ? `<span class="pill temp">🌡️ ${tempStr}</span>` : '',
+      gaugeCount ? `<span class="pill species">📡 ${gaugeCount} gauges</span>` : '',
       r.is_stocked ? '<span class="pill stocked">🐟 Stocked</span>' : '',
       r.tenkara_score === 'Excellent' ? '<span class="pill tenkara">🎣 Tenkara ✓</span>' : '',
       ...(r.species || []).slice(0, 2).map(s => `<span class="pill species">${s}</span>`),
@@ -1270,10 +1312,12 @@ function renderFlowChart(list) {
 
   const isMobile = window.innerWidth < 768;
   const flowLimit = isMobile ? 12 : list.length;
-  const sorted = [...list]
+  const isExpanded = mobileCapState.rivers;
+  const allSorted = [...list]
     .filter(r => r.cfs != null)
-    .sort((a, b) => b.cfs - a.cfs)
-    .slice(0, flowLimit);
+    .sort((a, b) => b.cfs - a.cfs);
+  const sorted = (isMobile && !isExpanded) ? allSorted.slice(0, flowLimit) : allSorted;
+  setMobileCapButton('rivers-more-btn', isMobile, allSorted.length, flowLimit, isExpanded);
   const names = sorted.map(r => r.river);
   const values = sorted.map(r => Math.round(r.cfs));
   const colors = sorted.map(r => CONDITION_COLORS[r.condition.status] || '#3d6480');
@@ -1539,8 +1583,13 @@ function renderPassageHero() {
 function renderPassageCharts() {
   if (!document.getElementById('passage-chart')) return;
   if (!passageChart) passageChart = echarts.init(document.getElementById('passage-chart'), null, { renderer: 'canvas' });
+  const isMobile = window.innerWidth < 768;
+  const speciesLimit = 6;
+  const isExpanded = mobileCapState.passage;
 
-  const species = Object.keys(passageData);
+  const allSpecies = Object.keys(passageData);
+  const species = (isMobile && !isExpanded) ? allSpecies.slice(0, speciesLimit) : allSpecies;
+  setMobileCapButton('passage-more-btn', isMobile, allSpecies.length, speciesLimit, isExpanded);
   const recents = species.map(s => passageData[s].recent || 0);
   const avgs = species.map(s => passageData[s].avg_7d || 0);
 
@@ -1553,9 +1602,9 @@ function renderPassageCharts() {
   passageChart.setOption({
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis', backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' } },
-    legend: { data: ['Today', '7-Day Avg'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
-    grid: { left: '2%', right: '4%', bottom: '12%', top: '30px', containLabel: true },
-    xAxis: { type: 'category', data: species, axisLabel: { color: '#dceeff', fontSize: 10, rotate: 20, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
+    legend: isMobile ? { show: false } : { data: ['Today', '7-Day Avg'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
+    grid: { left: '2%', right: '4%', bottom: isMobile ? '8%' : '12%', top: isMobile ? '8%' : '30px', containLabel: true },
+    xAxis: { type: 'category', data: species, axisLabel: { color: '#dceeff', fontSize: isMobile ? 8 : 10, rotate: isMobile ? 0 : 20, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
     yAxis: {
       type: 'value', axisLabel: { color: '#7da8cc', fontSize: 10, formatter: v => v >= 1000 ? (v/1000).toFixed(0)+'k' : v },
       splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } },
@@ -1565,13 +1614,13 @@ function renderPassageCharts() {
         name: 'Today', type: 'bar', data: recents.map((v, i) => ({
           value: v, itemStyle: { color: speciesColors[species[i]] || '#00d4ff', borderRadius: [4, 4, 0, 0] },
         })), barGap: '10%',
-        label: { show: true, position: 'top', color: '#dceeff', fontSize: 9, formatter: p => p.value >= 1000 ? (p.value/1000).toFixed(1)+'k' : p.value },
+        label: { show: !isMobile, position: 'top', color: '#dceeff', fontSize: 9, formatter: p => p.value >= 1000 ? (p.value/1000).toFixed(1)+'k' : p.value },
       },
-      {
+      ...(!isMobile ? [{
         name: '7-Day Avg', type: 'bar', data: avgs.map((v, i) => ({
           value: v, itemStyle: { color: (speciesColors[species[i]] || '#00d4ff') + '55', borderRadius: [4, 4, 0, 0] },
         })),
-      },
+      }] : []),
     ],
   });
 }
@@ -1668,9 +1717,14 @@ function renderTideCards() {
 function renderBuoyChart() {
   if (!document.getElementById('buoy-chart')) return;
   if (!buoyChart) buoyChart = echarts.init(document.getElementById('buoy-chart'), null, { renderer: 'canvas' });
+  const isMobile = window.innerWidth < 768;
+  const buoyLimit = 4;
+  const isExpanded = mobileCapState.buoy;
 
   const buoys = coastalData.buoys || {};
-  const names = Object.keys(buoys).filter(n => !buoys[n].error);
+  const allNames = Object.keys(buoys).filter(n => !buoys[n].error);
+  const names = (isMobile && !isExpanded) ? allNames.slice(0, buoyLimit) : allNames;
+  setMobileCapButton('buoy-more-btn', isMobile, allNames.length, buoyLimit, isExpanded);
   if (!names.length) return;
 
   const waveData = names.map(n => buoys[n].wave_height_ft || 0);
@@ -1680,14 +1734,14 @@ function renderBuoyChart() {
   buoyChart.setOption({
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis', backgroundColor: '#0d1e36', borderColor: 'rgba(0,180,255,.3)', textStyle: { color: '#dceeff' } },
-    legend: { data: ['Wave Height (ft)', 'SST (°F)', 'Wind (kts)'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
-    grid: { left: '2%', right: '4%', bottom: '10%', top: '30px', containLabel: true },
-    xAxis: { type: 'category', data: names, axisLabel: { color: '#dceeff', fontSize: 10 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
+    legend: isMobile ? { show: false } : { data: ['Wave Height (ft)', 'SST (°F)', 'Wind (kts)'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
+    grid: { left: '2%', right: '4%', bottom: isMobile ? '8%' : '10%', top: isMobile ? '8%' : '30px', containLabel: true },
+    xAxis: { type: 'category', data: names, axisLabel: { color: '#dceeff', fontSize: isMobile ? 8 : 10, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
     yAxis: { type: 'value', axisLabel: { color: '#7da8cc', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } } },
     series: [
-      { name: 'Wave Height (ft)', type: 'bar', data: waveData, itemStyle: { color: '#00d4ff', borderRadius: [4,4,0,0] }, barMaxWidth: 30 },
-      { name: 'SST (°F)', type: 'line', data: sstData, lineStyle: { color: '#ff9f43', width: 2 }, symbol: 'circle', symbolSize: 8, itemStyle: { color: '#ff9f43' } },
-      { name: 'Wind (kts)', type: 'line', data: windData, lineStyle: { color: '#a55eea', width: 2 }, symbol: 'circle', symbolSize: 8, itemStyle: { color: '#a55eea' } },
+      { name: 'Wave Height (ft)', type: 'bar', data: waveData, itemStyle: { color: '#00d4ff', borderRadius: [4,4,0,0] }, barMaxWidth: isMobile ? 18 : 30 },
+      { name: 'SST (°F)', type: 'line', data: sstData, lineStyle: { color: '#ff9f43', width: 2 }, symbol: isMobile ? 'none' : 'circle', symbolSize: isMobile ? 0 : 8, itemStyle: { color: '#ff9f43' } },
+      ...(!isMobile ? [{ name: 'Wind (kts)', type: 'line', data: windData, lineStyle: { color: '#a55eea', width: 2 }, symbol: 'circle', symbolSize: 8, itemStyle: { color: '#a55eea' } }] : []),
     ],
   });
 }
@@ -1719,9 +1773,16 @@ function renderWeatherCards() {
 function renderWeatherChart() {
   if (!document.getElementById('weather-chart')) return;
   if (!weatherChart) weatherChart = echarts.init(document.getElementById('weather-chart'), null, { renderer: 'canvas' });
+  const isMobile = window.innerWidth < 768;
+  const weatherLimit = 5;
+  const isExpanded = mobileCapState.weather;
 
-  const entries = Object.entries(weatherData).filter(([_, w]) => !w.error && w.fishing_score != null);
-  const zones = entries.map(([z]) => z.replace(' (', '\n('));
+  const allEntries = Object.entries(weatherData)
+    .filter(([_, w]) => !w.error && w.fishing_score != null)
+    .sort((a, b) => (b[1].fishing_score || 0) - (a[1].fishing_score || 0));
+  const entries = (isMobile && !isExpanded) ? allEntries.slice(0, weatherLimit) : allEntries;
+  setMobileCapButton('weather-more-btn', isMobile, allEntries.length, weatherLimit, isExpanded);
+  const zones = entries.map(([z]) => isMobile ? z.replace(' (', ' ') : z.replace(' (', '\n('));
   const scores = entries.map(([_, w]) => w.fishing_score);
   const colors = scores.map(s => s >= 80 ? '#00ff87' : s >= 60 ? '#ffd60a' : s >= 40 ? '#ff9f43' : '#ff4757');
 
@@ -1734,14 +1795,14 @@ function renderWeatherChart() {
         return `<b>${entries[p[0].dataIndex][0]}</b><br>Score: ${p[0].value}/100<br>${w.temp_f}°F · ${w.short_forecast}`;
       },
     },
-    grid: { left: '2%', right: '4%', bottom: '18%', top: '4%', containLabel: true },
-    xAxis: { type: 'category', data: zones, axisLabel: { color: '#dceeff', fontSize: 9, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
+    grid: { left: '2%', right: '4%', bottom: isMobile ? '8%' : '18%', top: '4%', containLabel: true },
+    xAxis: { type: 'category', data: zones, axisLabel: { color: '#dceeff', fontSize: isMobile ? 8 : 9, interval: 0, rotate: isMobile ? 0 : 0 }, axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } } },
     yAxis: { type: 'value', max: 100, axisLabel: { color: '#7da8cc' }, splitLine: { lineStyle: { color: 'rgba(0,180,255,0.06)' } } },
     series: [{
       type: 'bar',
       data: scores.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [4,4,0,0] } })),
-      barMaxWidth: 40,
-      label: { show: true, position: 'top', color: '#dceeff', fontSize: 10, formatter: p => p.value + '%' },
+      barMaxWidth: isMobile ? 26 : 40,
+      label: { show: !isMobile, position: 'top', color: '#dceeff', fontSize: 10, formatter: p => p.value + '%' },
     }],
   });
 }
@@ -1883,10 +1944,12 @@ function renderLakeChart() {
   if (!lakeData.length) return;
 
   const isMobile = window.innerWidth < 768;
-  const lakeLimit = isMobile ? 10 : lakeData.length;
-  const sorted = [...lakeData]
+  const lakeLimit = 10;
+  const isExpanded = mobileCapState.lakes;
+  const allSorted = [...lakeData]
     .sort((a, b) => a.temp_f - b.temp_f)
-    .slice(-lakeLimit);
+  const sorted = (isMobile && !isExpanded) ? allSorted.slice(-lakeLimit) : allSorted;
+  setMobileCapButton('lakes-more-btn', isMobile, allSorted.length, lakeLimit, isExpanded);
   const names = sorted.map(l => l.name.replace(' Reservoir', ' Res.').replace(' Reservoir', ''));
   const temps = sorted.map(l => l.temp_f);
   const colors = sorted.map(l => l.condition.color || '#3d6480');
@@ -2168,6 +2231,12 @@ function setLocationMapMarker(lat, lon, label) {
 window.addEventListener('resize', () => {
   [flowChart, tempChart, passageChart, weatherChart, buoyChart, regionChart, tenkaraPie, tempDistChart, stockingChart, levelsFlowChart, lakeChart]
     .filter(Boolean).forEach(c => c.resize());
+  if (document.getElementById('tab-rivers').classList.contains('active')) renderFlowChart(filteredRivers.length ? filteredRivers : riverData);
+  if (document.getElementById('tab-levels').classList.contains('active')) renderLevelsChart();
+  if (document.getElementById('tab-passage').classList.contains('active')) renderPassageCharts();
+  if (document.getElementById('tab-coastal').classList.contains('active')) renderBuoyChart();
+  if (document.getElementById('tab-weather').classList.contains('active')) renderWeatherChart();
+  if (document.getElementById('tab-lakes').classList.contains('active')) renderLakeChart();
   if (map) map.invalidateSize();
 });
 
