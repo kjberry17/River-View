@@ -193,7 +193,7 @@ TOOLS = [
                     },
                     "num_results": {
                         "type": "integer",
-                        "description": "Number of results to return (3–8). Default 5.",
+                        "description": "Number of results to return (2–5). Default 5.",
                     },
                     "fishing_context": {
                         "type": "string",
@@ -577,7 +577,7 @@ def _execute_web_search(args: dict) -> tuple:
     if not query:
         return "No search query provided.", []
 
-    num_results = min(max(int(args.get("num_results", 5)), 2), 8)
+    num_results = min(max(int(args.get("num_results", 5)), 2), 5)
     context = args.get("fishing_context", "general")
 
     fishing_keywords = ["fishing", "fish", "hatch", "closure", "ODFW", "river", "stream",
@@ -945,13 +945,17 @@ def chat_with_buddy_stream(
     pending_wiki_proposals = []
     all_sources = []
     max_iterations = 6
+    web_search_count = 0
+    MAX_WEB_SEARCHES = 2
 
     try:
         for _ in range(max_iterations):
+            # Remove web_search from available tools once limit is reached
+            active_tools = [t for t in TOOLS if not (web_search_count >= MAX_WEB_SEARCHES and t["function"]["name"] == "web_search")]
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
-                tools=TOOLS,
+                tools=active_tools,
                 tool_choice="auto",
                 max_tokens=2000,
                 timeout=60,
@@ -969,6 +973,8 @@ def chat_with_buddy_stream(
                     ],
                 })
                 for tc in msg.tool_calls:
+                    if tc.function.name == "web_search":
+                        web_search_count += 1
                     args = json.loads(tc.function.arguments)
                     tool_label = TOOL_LABELS.get(tc.function.name, tc.function.name)
                     tool_icon = TOOL_ICONS.get(tc.function.name, "⚙️")

@@ -15,26 +15,37 @@ except ImportError:
         _DDG_AVAILABLE = False
         DDGS = None
 
-DDG_RATE_DELAY = 1.5  # seconds between DDG queries to avoid rate limiting
+DDG_RATE_DELAY = 2.0  # seconds between any DDG queries to avoid rate limiting
+DDG_MAX_RESULTS = 5   # hard cap per search — enough signal, avoids context bloat
+_ddg_last_call = 0.0  # global timestamp of last DDG call
 
 
 @ttl_cache(ttl=1800)
-def ddg_search(query, max_results=8, retries=2):
+def ddg_search(query, max_results=DDG_MAX_RESULTS, retries=2):
+    global _ddg_last_call
     if not _DDG_AVAILABLE:
         return {"error": "DuckDuckGo search unavailable — install ddgs: pip install ddgs", "results": []}
 
+    # Enforce minimum gap between real network calls (cache hits bypass this entirely)
+    elapsed = time.time() - _ddg_last_call
+    if elapsed < DDG_RATE_DELAY:
+        time.sleep(DDG_RATE_DELAY - elapsed)
+
+    max_results = min(max_results, DDG_MAX_RESULTS)
     last_err = ""
     for attempt in range(retries + 1):
         try:
             with DDGS() as ddg:
                 results = list(ddg.text(query, max_results=max_results))
+            _ddg_last_call = time.time()
             return {"success": True, "count": len(results), "results": results}
         except Exception as e:
             last_err = str(e)[:200]
             if attempt < retries:
-                time.sleep(1.5 * (attempt + 1))
+                time.sleep(DDG_RATE_DELAY * (attempt + 1))
             continue
 
+    _ddg_last_call = time.time()
     return {"error": last_err or "DDG search failed after retries", "results": []}
 
 
