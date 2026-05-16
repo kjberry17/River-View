@@ -934,21 +934,23 @@ def chat_with_buddy_stream(
     MAX_WEB_SEARCHES = 2
 
     try:
-        for _ in range(max_iterations):
+        for iteration in range(max_iterations):
+            is_last = iteration == max_iterations - 1
             # Remove web_search from available tools once limit is reached
             active_tools = [t for t in TOOLS if not (web_search_count >= MAX_WEB_SEARCHES and t["function"]["name"] == "web_search")]
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
                 tools=active_tools,
-                tool_choice="auto",
+                # Force a text response on the last iteration — no more tool calls
+                tool_choice="none" if is_last else "auto",
                 max_tokens=2000,
                 timeout=60,
             )
             choice = response.choices[0]
             msg = choice.message
 
-            if choice.finish_reason == "tool_calls" and msg.tool_calls:
+            if choice.finish_reason == "tool_calls" and msg.tool_calls and not is_last:
                 messages.append({
                     "role": "assistant",
                     "content": msg.content or "",
@@ -958,8 +960,6 @@ def chat_with_buddy_stream(
                     ],
                 })
                 for tc in msg.tool_calls:
-                    if tc.function.name == "web_search":
-                        web_search_count += 1
                     args = json.loads(tc.function.arguments)
                     tool_label = TOOL_LABELS.get(tc.function.name, tc.function.name)
                     tool_icon = TOOL_ICONS.get(tc.function.name, "⚙️")
@@ -968,11 +968,18 @@ def chat_with_buddy_stream(
 
                     yield {"type": "tool_start", "tool": tc.function.name, "icon": tool_icon, "label": label}
 
-                    try:
-                        result, tool_sources = execute_tool(tc.function.name, args, live_data, db_module)
-                    except Exception as tool_err:
-                        result = f"Tool '{tc.function.name}' error: {tool_err}"
+                    # Hard gate: block web_search beyond the per-turn limit regardless of tool list
+                    if tc.function.name == "web_search" and web_search_count >= MAX_WEB_SEARCHES:
+                        result = "Web search limit reached for this response."
                         tool_sources = []
+                    else:
+                        if tc.function.name == "web_search":
+                            web_search_count += 1
+                        try:
+                            result, tool_sources = execute_tool(tc.function.name, args, live_data, db_module)
+                        except Exception as tool_err:
+                            result = f"Tool '{tc.function.name}' error: {tool_err}"
+                            tool_sources = []
 
                     for src in tool_sources:
                         if src not in all_sources:
@@ -989,10 +996,22 @@ def chat_with_buddy_stream(
                             pass
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
             else:
-                content = msg.content or "No response generated."
+                content = msg.content or "I have the data but had trouble forming a response — please try again."
                 yield {"type": "response", "content": content}
                 yield {"type": "done", "sources": all_sources, "wiki_proposals": pending_wiki_proposals}
                 return
+
+        # Safety net: loop exhausted without a text response — force one final call
+        fallback = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tool_choice="none",
+            max_tokens=2000,
+            timeout=60,
+        )
+        content = fallback.choices[0].message.content or "I gathered the data but ran out of space to respond. Try asking a more specific question."
+        yield {"type": "response", "content": content}
+        yield {"type": "done", "sources": all_sources, "wiki_proposals": pending_wiki_proposals}
 
     except PermissionDeniedError:
         if model != FREE_FALLBACK:
