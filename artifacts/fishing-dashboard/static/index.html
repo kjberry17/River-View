@@ -2446,15 +2446,19 @@ async function sendChat() {
   const history = buddyHistory.slice(-14);
 
   try {
+    console.log('[AI Buddy] Sending request — model:', model, 'message:', message.slice(0, 80));
     const resp = await fetch('/fish/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, history, model, stream: true }),
     });
 
+    console.log('[AI Buddy] HTTP response:', resp.status, resp.statusText);
     if (!resp.ok) {
+      const errBody = await resp.text().catch(() => '');
+      console.error('[AI Buddy] Server error body:', errBody);
       removeTypingIndicator();
-      appendAssistantMsg(`⚠️ Server error: ${resp.status}`, [], []);
+      appendAssistantMsg(`⚠️ Server error: ${resp.status} — ${errBody.slice(0, 200)}`, [], []);
       return;
     }
 
@@ -2465,10 +2469,14 @@ async function sendChat() {
     let wikiProposals = [];
     let responseText = '';
     let toolPills = [];
+    let rawLineCount = 0;
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        console.log('[AI Buddy] Stream done. Total lines received:', rawLineCount, '| responseText length:', responseText.length);
+        break;
+      }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
@@ -2476,8 +2484,11 @@ async function sendChat() {
 
       for (const line of lines) {
         if (!line.trim()) continue;
+        rawLineCount++;
+        console.log('[AI Buddy] Stream line', rawLineCount, ':', line.slice(0, 200));
         try {
           const event = JSON.parse(line);
+          console.log('[AI Buddy] Event type:', event.type, event.error ? '| error: ' + event.error : '');
 
           if (event.type === 'tool_start') {
             showWorkingIndicator();
@@ -2492,11 +2503,16 @@ async function sendChat() {
             responseText = event.content || '';
             sources = event.sources || sources;
             wikiProposals = event.wiki_proposals || [];
+            console.log('[AI Buddy] Response content length:', responseText.length);
           } else if (event.type === 'done') {
             sources = event.sources || sources;
             wikiProposals = event.wiki_proposals || wikiProposals;
+          } else if (event.type === 'error') {
+            console.error('[AI Buddy] Server-sent error event:', event.error || event.message || JSON.stringify(event));
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error('[AI Buddy] JSON parse error on line:', line.slice(0, 300), '| error:', e.message);
+        }
       }
     }
 
@@ -2510,9 +2526,11 @@ async function sendChat() {
       buddyHistory.push({ role: 'user', content: message });
       buddyHistory.push({ role: 'assistant', content: responseText });
     } else {
+      console.error('[AI Buddy] Empty responseText after stream — check server logs above');
       appendAssistantMsg('⚠️ No response received.', [], []);
     }
   } catch (e) {
+    console.error('[AI Buddy] Caught exception:', e);
     removeWorkingIndicator();
     removeTypingIndicator();
     appendAssistantMsg('⚠️ Network error. Please check your connection and try again.', [], []);
