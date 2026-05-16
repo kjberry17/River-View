@@ -1215,7 +1215,12 @@ function renderMap() {
           const stagePart = g.height_ft != null ? ` / ${g.height_ft.toFixed(2)} ft` : '';
           const tempPart = g.temp_f != null ? ` / ${g.temp_f.toFixed(1)}°F` : '';
           const statusPart = g.status ? ` <span style="color:${g.status_color || '#9aa'}">${g.status}</span>` : '';
-          return `<span style="color:${srcColor};font-weight:700">${srcLabel}</span> ${namePart}: ${flowPart}${stagePart}${tempPart}${statusPart}`;
+          const damBadge = g.dam_position === 'above'
+            ? `<span style="display:inline-block;color:#00ff87;font-size:9px;font-weight:700;background:rgba(0,255,135,.12);padding:1px 5px;border-radius:3px;margin-top:2px;">▲ ABOVE ${g.dam_name || 'DAM'} · NATURAL</span>`
+            : g.dam_position === 'below'
+            ? `<span style="display:inline-block;color:#ff9f43;font-size:9px;font-weight:700;background:rgba(255,159,67,.12);padding:1px 5px;border-radius:3px;margin-top:2px;">▼ BELOW ${g.dam_name || 'DAM'} · CONTROLLED</span>`
+            : '';
+          return `<span style="color:${srcColor};font-weight:700">${srcLabel}</span> ${namePart}: ${flowPart}${stagePart}${tempPart}${statusPart}${damBadge ? '<br>' + damBadge : ''}`;
         }).join('<br>') +
         '</div>'
       : '';

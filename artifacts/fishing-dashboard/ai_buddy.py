@@ -53,6 +53,7 @@ You have access to:
 - Oregon hatchery and lake database
 - Karpathy Wiki: user's personal preferences, fishing logs, and spot notes
 - **WKCC Oregon Gauge Network**: 176 river gauges statewide with CFS, stage height (ft), water temp, flow trend (↑↓), whitewater class, and status (Low/Okay/Good/High/Flood) — covers tributaries and creeks not in the USGS 33. Available via get_live_data.
+- **Dam-aware gauges**: Many Oregon rivers carry gauges both above and below dams. Each gauge in get_live_data is tagged with `hydrology_type`: `"natural"` (above dam — reflects snowmelt, rainfall, spring inputs) or `"controlled"` (below dam — reflects Army Corps of Engineers releases, independent of natural conditions). Also tagged with `dam_position` ("above"/"below") and `dam_name`. When multiple gauges exist on a dam-split river, always identify which gauge applies to the user's target water. If above-dam conditions look good but below-dam releases are cold or blown out (or vice versa), proactively call that out and suggest fishing the better reach. Never assume a below-dam reading represents the natural river — it doesn't.
 - **Web search via DuckDuckGo**: search for real-time fishing reports, hatch reports, ODFW news, closures, regulations, and any current internet data
 
 ALWAYS call query_wiki first. Then use get_live_data for conditions. Use web_search proactively for:
@@ -373,6 +374,19 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                     f"{river_name}: {cfs_str} — {cond['label']} — Tenkara: {tenkara}{temp_str} | "
                     f"Species: {species} | {source}"
                 )
+                # Surface dam-split gauges so the AI can reason about them
+                gauges = data.get("gauges", [])
+                dam_gauges = [g for g in gauges if g.get("dam_position")]
+                if dam_gauges:
+                    for g in dam_gauges:
+                        pos = "▲ ABOVE" if g["dam_position"] == "above" else "▼ BELOW"
+                        htype = "natural" if g["hydrology_type"] == "natural" else "controlled/Army Corps"
+                        g_cfs = f"{g['flow_cfs']:.0f} CFS" if g.get("flow_cfs") is not None else "—"
+                        g_temp = f", {g['temp_f']:.1f}°F" if g.get("temp_f") is not None else ""
+                        dam_label = g.get("dam_name") or "dam"
+                        lines.append(
+                            f"  └ {pos} {dam_label} ({htype}): {g_cfs}{g_temp} — {g.get('name', g.get('location',''))}"
+                        )
 
         stocking = live_data.get("_stocking", [])
         if stocking:

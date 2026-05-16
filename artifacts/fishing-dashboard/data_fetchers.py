@@ -52,6 +52,63 @@ SPRING_FED_RIVERS = {
     }
 }
 
+DAM_ANNOTATIONS = {
+    "McKenzie River": [
+        {"dam": "Leaburg Dam", "above_keywords": ["vida", "ab leaburg", "above leaburg"], "below_keywords": ["bl leaburg", "below leaburg", "springfield", "coburg"]},
+    ],
+    "South Fork McKenzie River": [
+        {"dam": "Cougar Dam", "above_keywords": ["ab cougar", "above cougar", "cougar reservoir", "rainbow or"], "below_keywords": ["bl cougar", "below cougar"]},
+    ],
+    "Crooked River": [
+        {"dam": "Bowman Dam", "above_keywords": ["ab bowman", "above bowman", "prineville res"], "below_keywords": ["bl bowman", "below bowman", "cobble", "hwy 27"]},
+    ],
+    "North Santiam River": [
+        {"dam": "Detroit Dam", "above_keywords": ["ab detroit", "above detroit", "breitenbush", "upper santiam"], "below_keywords": ["bl detroit", "below detroit", "mehama", "mill city", "stayton"]},
+    ],
+    "Middle Fork Willamette": [
+        {"dam": "Dexter Dam", "above_keywords": ["ab dexter", "above dexter", "hills creek", "lookout point", "oakridge"], "below_keywords": ["bl dexter", "below dexter", "lowell", "springfield"]},
+    ],
+    "Owyhee River": [
+        {"dam": "Owyhee Dam", "above_keywords": ["ab owyhee dam", "above owyhee dam"], "below_keywords": ["bl owyhee", "below owyhee", "rome", "adrian"]},
+    ],
+    "Deschutes River": [
+        {"dam": "Pelton Dam", "above_keywords": ["ab pelton", "above pelton", "madras", "culver"], "below_keywords": ["bl pelton", "below pelton", "maupin", "warm springs", "sherars"]},
+    ],
+}
+
+
+def _annotate_dam_position(gauge: dict, river_name: str) -> dict:
+    annotations = DAM_ANNOTATIONS.get(river_name, [])
+    text = (gauge.get("name", "") + " " + gauge.get("location", "")).lower()
+    for dam_info in annotations:
+        for kw in dam_info.get("above_keywords", []):
+            if kw in text:
+                gauge["dam_position"] = "above"
+                gauge["dam_name"] = dam_info["dam"]
+                gauge["hydrology_type"] = "natural"
+                return gauge
+        for kw in dam_info.get("below_keywords", []):
+            if kw in text:
+                gauge["dam_position"] = "below"
+                gauge["dam_name"] = dam_info["dam"]
+                gauge["hydrology_type"] = "controlled"
+                return gauge
+    # Auto-detect USGS "BL DAM" / "AB DAM" abbreviations in station names
+    if " bl " in text and "dam" in text:
+        gauge["dam_position"] = "below"
+        gauge["dam_name"] = None
+        gauge["hydrology_type"] = "controlled"
+    elif " ab " in text and ("dam" in text or "reservoir" in text or "res " in text):
+        gauge["dam_position"] = "above"
+        gauge["dam_name"] = None
+        gauge["hydrology_type"] = "natural"
+    else:
+        gauge["dam_position"] = None
+        gauge["dam_name"] = None
+        gauge["hydrology_type"] = None
+    return gauge
+
+
 RIVER_INFO = {
     "Deschutes River": {"species": ["Rainbow Trout", "Brown Trout", "Summer Steelhead", "Fall Chinook"], "gear": ["Dry Fly", "Nymph", "Tenkara (upper)", "Steelhead gear (lower)"], "tenkara": True, "region": "Central Oregon", "season_note": "Year-round. Tenkara ideal above Bend May–Oct. Steelhead July–Oct (lower).", "access": "Bend, Maupin, Warm Springs, Hwy 97 corridors", "regulations": "Artificial lures only most sections. Check regs above/below Pelton Dam.", "drive_from_bend": 0},
     "McKenzie River": {"species": ["Rainbow Trout", "Spring Chinook", "Summer Steelhead", "Cutthroat"], "gear": ["Dry Fly", "Nymph", "Drift Boat", "Tenkara (forks)"], "tenkara": True, "region": "Willamette Valley", "season_note": "Best dry fly Apr–Oct. Chinook June–July. Steelhead July–Sept.", "access": "Eugene, Vida, Blue River, McKenzie Bridge (Hwy 126)", "regulations": "Wild trout C&R above Hayden Bridge. Chinook retention check regs.", "drive_from_bend": 75},
@@ -463,7 +520,7 @@ def fetch_usgs_flows():
                 "specific_conductance_uscm": site_data.get("specific_conductance_uscm"),
             }
             for river_name in matched_rivers:
-                gauges_by_river[river_name].append(gauge.copy())
+                gauges_by_river[river_name].append(_annotate_dam_position(gauge.copy(), river_name))
     except Exception as e:
         results["error"] = str(e)
         gauges_by_river = {river: [] for river in RIVER_COORDS.keys()}
@@ -503,7 +560,7 @@ def fetch_usgs_flows():
             "lon": None,
         }
         for river_name in matched_rivers:
-            gauges_by_river.setdefault(river_name, []).append(gauge.copy())
+            gauges_by_river.setdefault(river_name, []).append(_annotate_dam_position(gauge.copy(), river_name))
 
     for river_name, gauge_list in gauges_by_river.items():
         unique = {}
