@@ -407,6 +407,18 @@ sup.cite:hover{color:#fff;text-decoration:underline;}
   .weather-grid{grid-template-columns:1fr;}
   .hatchery-grid{grid-template-columns:1fr;}
   .section-head{flex-direction:column;align-items:flex-start;gap:8px;}
+
+  /* Reduce data-table density on phone widths */
+  #levels-table th:nth-child(3),
+  #levels-table td:nth-child(3),
+  #levels-table th:nth-child(4),
+  #levels-table td:nth-child(4),
+  #levels-table th:nth-child(8),
+  #levels-table td:nth-child(8),
+  #levels-table th:nth-child(9),
+  #levels-table td:nth-child(9){
+    display:none;
+  }
 }
 @media(max-width:400px){
   .card-grid{grid-template-columns:1fr;}
@@ -1054,7 +1066,7 @@ function renderLevelsChart() {
   if (!levelsFlowChart) levelsFlowChart = echarts.init(el, null, { renderer: 'canvas' });
 
   const isMobile = window.innerWidth < 768;
-  const flowLimit = isMobile ? 20 : 40;
+  const flowLimit = isMobile ? 10 : 40;
 
   const withFlow = levelsData
     .filter(g => g.flow_cfs != null && g.flow_cfs > 0)
@@ -1256,7 +1268,12 @@ function renderFlowChart(list) {
   if (!document.getElementById('flow-chart')) return;
   if (!flowChart) flowChart = echarts.init(document.getElementById('flow-chart'), null, { renderer: 'canvas' });
 
-  const sorted = [...list].filter(r => r.cfs != null).sort((a, b) => b.cfs - a.cfs);
+  const isMobile = window.innerWidth < 768;
+  const flowLimit = isMobile ? 12 : list.length;
+  const sorted = [...list]
+    .filter(r => r.cfs != null)
+    .sort((a, b) => b.cfs - a.cfs)
+    .slice(0, flowLimit);
   const names = sorted.map(r => r.river);
   const values = sorted.map(r => Math.round(r.cfs));
   const colors = sorted.map(r => CONDITION_COLORS[r.condition.status] || '#3d6480');
@@ -1294,15 +1311,15 @@ function renderFlowChart(list) {
     yAxis: {
       type: 'category',
       data: names,
-      axisLabel: { color: '#dceeff', fontSize: 10, width: 160, overflow: 'truncate' },
+      axisLabel: { color: '#dceeff', fontSize: isMobile ? 8 : 10, width: isMobile ? 110 : 160, overflow: 'truncate' },
       axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } },
     },
     series: [{
       type: 'bar',
       data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [0, 4, 4, 0] } })),
-      barMaxWidth: 18,
+      barMaxWidth: isMobile ? 14 : 18,
       label: {
-        show: true, position: 'right', color: '#7da8cc', fontSize: 9,
+        show: !isMobile, position: 'right', color: '#7da8cc', fontSize: 9,
         formatter: p => p.value >= 1000 ? (p.value/1000).toFixed(1)+'k' : p.value,
       },
     }],
@@ -1865,7 +1882,11 @@ function renderLakeChart() {
   if (!lakeChart) lakeChart = echarts.init(document.getElementById('lake-temp-chart'), null, { renderer: 'canvas' });
   if (!lakeData.length) return;
 
-  const sorted = [...lakeData].sort((a, b) => a.temp_f - b.temp_f);
+  const isMobile = window.innerWidth < 768;
+  const lakeLimit = isMobile ? 10 : lakeData.length;
+  const sorted = [...lakeData]
+    .sort((a, b) => a.temp_f - b.temp_f)
+    .slice(-lakeLimit);
   const names = sorted.map(l => l.name.replace(' Reservoir', ' Res.').replace(' Reservoir', ''));
   const temps = sorted.map(l => l.temp_f);
   const colors = sorted.map(l => l.condition.color || '#3d6480');
@@ -1888,7 +1909,7 @@ function renderLakeChart() {
     grid: { left: '2%', right: '5%', bottom: '18%', top: '8%', containLabel: true },
     xAxis: {
       type: 'category', data: names,
-      axisLabel: { color: '#dceeff', fontSize: 9, rotate: 35, interval: 0 },
+      axisLabel: { color: '#dceeff', fontSize: isMobile ? 8 : 9, rotate: isMobile ? 15 : 35, interval: 0 },
       axisLine: { lineStyle: { color: 'rgba(0,180,255,0.12)' } },
     },
     yAxis: {
@@ -1908,13 +1929,13 @@ function renderLakeChart() {
             opacity: isBest[i] ? 1 : 0.55,
           },
         })),
-        barMaxWidth: 28,
-        label: { show: true, position: 'top', color: '#dceeff', fontSize: 9, formatter: p => p.value.toFixed(1) + '°' },
+        barMaxWidth: isMobile ? 18 : 28,
+        label: { show: !isMobile, position: 'top', color: '#dceeff', fontSize: 9, formatter: p => p.value.toFixed(1) + '°' },
       },
       { type: 'line', data: new Array(names.length).fill(50), lineStyle: { color: '#00ff87', type: 'dashed', width: 1 }, symbol: 'none', name: 'Ideal Min (50°F)' },
       { type: 'line', data: new Array(names.length).fill(68), lineStyle: { color: '#ff9f43', type: 'dashed', width: 1 }, symbol: 'none', name: 'Ideal Max (68°F)' },
     ],
-    legend: { data: ['Ideal Min (50°F)', 'Ideal Max (68°F)'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
+    legend: isMobile ? { show: false } : { data: ['Ideal Min (50°F)', 'Ideal Max (68°F)'], textStyle: { color: '#7da8cc', fontSize: 10 }, top: 0 },
   });
   lakeChart.resize();
 }
