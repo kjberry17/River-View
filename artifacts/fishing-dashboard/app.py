@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from dotenv import load_dotenv
 load_dotenv()
@@ -11,6 +12,22 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="static")
 CORS(app)
+
+# Per-session tool result cache — survives across questions in the same browser session
+SESSION_CACHE: dict = {}
+SESSION_CACHE_TTL = 1800  # 30 minutes
+
+
+def _get_session(session_id: str) -> dict:
+    now = time.time()
+    # Purge expired sessions
+    expired = [k for k, v in SESSION_CACHE.items() if now - v.get("last_active", 0) > SESSION_CACHE_TTL]
+    for k in expired:
+        del SESSION_CACHE[k]
+    if session_id not in SESSION_CACHE:
+        SESSION_CACHE[session_id] = {"last_active": now, "web_searches": []}
+    SESSION_CACHE[session_id]["last_active"] = now
+    return SESSION_CACHE[session_id]
 
 try:
     import database as _db
@@ -349,6 +366,8 @@ def api_chat():
     history = body.get("history") or []
     model_key = body.get("model") or "⚡ DeepSeek V4 Flash"
     use_stream = body.get("stream", False)
+    session_id = (body.get("session_id") or "").strip()
+    session_cache = _get_session(session_id) if session_id else {}
 
     if not user_message:
         return jsonify({"error": "No message provided"}), 400
@@ -397,6 +416,7 @@ def api_chat():
                     live_data=live_data,
                     db_module=db,
                     model_key=model_key,
+                    session_cache=session_cache,
                 ):
                     yield _json.dumps(event) + "\n"
             from flask import Response
@@ -409,6 +429,7 @@ def api_chat():
             live_data=live_data,
             db_module=db,
             model_key=model_key,
+            session_cache=session_cache,
         )
         return jsonify({"response": response, "wiki_proposals": wiki_proposals})
     except Exception as e:

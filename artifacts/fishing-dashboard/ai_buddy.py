@@ -919,12 +919,24 @@ def chat_with_buddy_stream(
     live_data: dict,
     db_module,
     model_key: str = "⚡ DeepSeek V4 Flash",
+    session_cache: dict = None,
 ):
     client = get_client()
     model = MODELS.get(model_key, FREE_FALLBACK)
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(conversation_history[-14:])
+
+    # Inject prior web search results from this session so the model can reuse them
+    if session_cache:
+        prior = session_cache.get("web_searches", [])
+        if prior:
+            context = "**Web search data already retrieved this session — use this before searching again:**\n"
+            for s in prior[-5:]:
+                context += f"\n---\nQuery: {s['query']}\n{s['result']}\n"
+            messages.append({"role": "user", "content": context})
+            messages.append({"role": "assistant", "content": "Understood — I have that search data from our session and will use it."})
+
     messages.append({"role": "user", "content": user_message})
 
     pending_wiki_proposals = []
@@ -980,6 +992,16 @@ def chat_with_buddy_stream(
                         except Exception as tool_err:
                             result = f"Tool '{tc.function.name}' error: {tool_err}"
                             tool_sources = []
+
+                        # Persist successful web search results to session cache
+                        if tc.function.name == "web_search" and session_cache is not None and not result.startswith("Web search error"):
+                            import time as _t
+                            session_cache.setdefault("web_searches", []).append({
+                                "query": args.get("query", ""),
+                                "result": result[:600],
+                                "timestamp": _t.time(),
+                            })
+                            session_cache["web_searches"] = session_cache["web_searches"][-5:]
 
                     for src in tool_sources:
                         if src not in all_sources:

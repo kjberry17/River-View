@@ -2230,6 +2230,7 @@ window.addEventListener('resize', () => {
 });
 
 // ── The Fisher Chat ──
+const SESSION_ID = (crypto.randomUUID?.() || Math.random().toString(36).slice(2) + Date.now().toString(36));
 let buddyHistory = [];
 let buddyTyping = false;
 
@@ -2434,7 +2435,7 @@ async function sendChat() {
     const resp = await fetch('/fish/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history, model, stream: true }),
+      body: JSON.stringify({ message, history, model, stream: true, session_id: SESSION_ID }),
     });
 
     console.log('[AI Buddy] HTTP response:', resp.status, resp.statusText);
