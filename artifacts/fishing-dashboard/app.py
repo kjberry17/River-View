@@ -451,8 +451,11 @@ def api_chat():
                     yield _json.dumps({"type": "response", "content": "⚠️ The Fisher ran out of time gathering data. Please try again — a simpler question may respond faster."}) + "\n"
                     yield _json.dumps({"type": "done", "sources": [], "wiki_proposals": []}) + "\n"
 
-            from flask import Response
-            return Response(generate(), mimetype="application/x-ndjson")
+            from flask import Response, stream_with_context
+            resp = Response(stream_with_context(generate()), mimetype="application/x-ndjson")
+            resp.headers["X-Accel-Buffering"] = "no"
+            resp.headers["Cache-Control"] = "no-cache"
+            return resp
 
         from ai_buddy import chat_with_buddy
         response, wiki_proposals = chat_with_buddy(
