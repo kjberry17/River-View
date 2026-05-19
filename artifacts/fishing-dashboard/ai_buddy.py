@@ -22,11 +22,18 @@ except ImportError:
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
+MODEL_FALLBACK_CHAIN = [
+    "deepseek/deepseek-v4-flash:free",
+    "minimax/minimax-m2.5:free",
+    "z-ai/glm-4.5-air:free",
+]
+
 MODELS = {
-    "⚡ DeepSeek V4 Flash": "deepseek/deepseek-v4-flash",
+    "⚡ DeepSeek V4 Flash": MODEL_FALLBACK_CHAIN[0],
+    "⚡ DeepSeek V4 Flash (Free)": MODEL_FALLBACK_CHAIN[0],
 }
 
-FREE_FALLBACK = "deepseek/deepseek-v4-flash:free"
+FREE_FALLBACK = MODEL_FALLBACK_CHAIN[0]
 
 SYSTEM_PROMPT = """You are a deeply knowledgeable, seasoned Oregon fly and tenkara fishing guide named "The Fisher".
 
@@ -80,6 +87,34 @@ def get_client():
         api_key=OPENROUTER_API_KEY,
         default_headers={"HTTP-Referer": "https://oregon-fishing-dashboard.replit.app"},
     )
+
+
+def _model_candidates(model_key: str) -> list[str]:
+    selected_model = MODELS.get(model_key, FREE_FALLBACK)
+    return [model for model in [selected_model, *MODEL_FALLBACK_CHAIN] if model]
+
+
+def _dedupe_models(models: list[str]) -> list[str]:
+    seen = set()
+    deduped = []
+    for model in models:
+        if model not in seen:
+            deduped.append(model)
+            seen.add(model)
+    return deduped
+
+
+def _create_completion_with_fallback(client, model_candidates: list[str], state: dict, **kwargs):
+    candidates = _dedupe_models(model_candidates)
+    last_error = None
+    while state["index"] < len(candidates):
+        model = candidates[state["index"]]
+        try:
+            return client.chat.completions.create(model=model, **kwargs), model
+        except (PermissionDeniedError, RateLimitError, APIStatusError) as err:
+            last_error = err
+            state["index"] += 1
+    raise last_error
 
 
 TOOLS = [
@@ -803,10 +838,11 @@ def chat_with_buddy(
     conversation_history: list,
     live_data: dict,
     db_module,
-    model_key: str = "⚡ DeepSeek V4 Flash",
+    model_key: str = "⚡ DeepSeek V4 Flash (Free)",
 ) -> tuple[str, list]:
     client = get_client()
-    model = MODELS.get(model_key, FREE_FALLBACK)
+    model_candidates = _model_candidates(model_key)
+    model_state = {"index": 0}
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(conversation_history[-14:])
@@ -817,8 +853,10 @@ def chat_with_buddy(
 
     try:
         for _ in range(max_iterations):
-            response = client.chat.completions.create(
-                model=model,
+            response, _model = _create_completion_with_fallback(
+                client,
+                model_candidates,
+                model_state,
                 messages=messages,
                 tools=TOOLS,
                 tool_choice="auto",
@@ -856,25 +894,13 @@ def chat_with_buddy(
                 return msg.content or "No response generated.", pending_wiki_proposals
 
     except PermissionDeniedError:
-        if model != FREE_FALLBACK:
-            try:
-                messages[-1]["content"] = user_message
-                resp2 = client.chat.completions.create(
-                    model=FREE_FALLBACK,
-                    messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_message}],
-                    max_tokens=800,
-                    timeout=30,
-                )
-                return resp2.choices[0].message.content + f"\n\n*(Fell back to free model — {model} requires credits)*", []
-            except Exception as e2:
-                return f"⚠️ AI unavailable: {e2}", []
-        return "⚠️ The selected model requires OpenRouter credits. Switch to a 'Free' model in the dropdown.", []
+        return "⚠️ All configured OpenRouter models were denied. Try again in a minute or check OpenRouter model availability.", []
 
     except RateLimitError:
-        return "⚠️ Rate limit hit. Wait 30 seconds and try again, or switch to a different free model.", []
+        return "⚠️ All configured OpenRouter fallback models are rate-limited. Wait 30 seconds and try again.", []
 
     except APIStatusError as e:
-        return f"⚠️ OpenRouter API error ({e.status_code}): {e.message[:200]}", []
+        return f"⚠️ OpenRouter API error after trying all fallback models ({e.status_code}): {e.message[:200]}", []
 
     except Exception as e:
         return f"⚠️ The Fisher encountered an issue: {str(e)[:300]}", []
@@ -918,11 +944,12 @@ def chat_with_buddy_stream(
     conversation_history: list,
     live_data: dict,
     db_module,
-    model_key: str = "⚡ DeepSeek V4 Flash",
+    model_key: str = "⚡ DeepSeek V4 Flash (Free)",
     session_cache: dict = None,
 ):
     client = get_client()
-    model = MODELS.get(model_key, FREE_FALLBACK)
+    model_candidates = _model_candidates(model_key)
+    model_state = {"index": 0}
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(conversation_history[-14:])
@@ -950,8 +977,10 @@ def chat_with_buddy_stream(
             is_last = iteration == max_iterations - 1
             # Remove web_search from available tools once limit is reached
             active_tools = [t for t in TOOLS if not (web_search_count >= MAX_WEB_SEARCHES and t["function"]["name"] == "web_search")]
-            response = client.chat.completions.create(
-                model=model,
+            response, _model = _create_completion_with_fallback(
+                client,
+                model_candidates,
+                model_state,
                 messages=messages,
                 tools=active_tools,
                 # Force a text response on the last iteration — no more tool calls
@@ -1035,8 +1064,10 @@ def chat_with_buddy_stream(
                 return
 
         # Safety net: loop exhausted without a text response — force one final call
-        fallback = client.chat.completions.create(
-            model=model,
+        fallback, _model = _create_completion_with_fallback(
+            client,
+            model_candidates,
+            model_state,
             messages=messages,
             tool_choice="none",
             max_tokens=2000,
@@ -1047,32 +1078,15 @@ def chat_with_buddy_stream(
         yield {"type": "done", "sources": all_sources, "wiki_proposals": pending_wiki_proposals}
 
     except PermissionDeniedError:
-        if model != FREE_FALLBACK:
-            try:
-                messages[-1]["content"] = user_message
-                resp2 = client.chat.completions.create(
-                    model=FREE_FALLBACK,
-                    messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_message}],
-                    max_tokens=800,
-                    timeout=30,
-                )
-                content = resp2.choices[0].message.content + f"\n\n*(Fell back to free model — {model} requires credits)*"
-                yield {"type": "response", "content": content}
-                yield {"type": "done", "sources": [], "wiki_proposals": []}
-                return
-            except Exception as e2:
-                yield {"type": "response", "content": f"⚠️ AI unavailable: {e2}"}
-                yield {"type": "done", "sources": [], "wiki_proposals": []}
-                return
-        yield {"type": "response", "content": "⚠️ The selected model requires OpenRouter credits. Switch to a 'Free' model in the dropdown."}
+        yield {"type": "response", "content": "⚠️ All configured OpenRouter models were denied. Try again in a minute or check OpenRouter model availability."}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except RateLimitError:
-        yield {"type": "response", "content": "⚠️ Rate limit hit. Wait 30 seconds and try again, or switch to a different free model."}
+        yield {"type": "response", "content": "⚠️ All configured OpenRouter fallback models are rate-limited. Wait 30 seconds and try again."}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except APIStatusError as e:
-        yield {"type": "response", "content": f"⚠️ OpenRouter API error ({e.status_code}): {e.message[:200]}"}
+        yield {"type": "response", "content": f"⚠️ OpenRouter API error after trying all fallback models ({e.status_code}): {e.message[:200]}"}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except Exception as e:
