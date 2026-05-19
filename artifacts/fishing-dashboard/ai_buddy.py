@@ -972,29 +972,40 @@ def chat_with_buddy_stream(
                     ],
                 })
                 for tc in msg.tool_calls:
-                    args = json.loads(tc.function.arguments)
-                    tool_label = TOOL_LABELS.get(tc.function.name, tc.function.name)
-                    tool_icon = TOOL_ICONS.get(tc.function.name, "⚙️")
+                    # Guard against malformed tool call objects from the model
+                    try:
+                        tool_name = tc.function.name if tc.function and tc.function.name else "unknown_tool"
+                        raw_args = tc.function.arguments if tc.function else "{}"
+                        args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                    except (json.JSONDecodeError, TypeError, AttributeError) as parse_err:
+                        result = f"Tool call had malformed arguments: {parse_err}"
+                        tool_id = getattr(tc, 'id', 'unknown')
+                        messages.append({"role": "tool", "tool_call_id": tool_id, "content": result})
+                        yield {"type": "tool_start", "tool": "error", "icon": "⚠️", "label": f"Malformed tool call"}
+                        yield {"type": "tool_end", "tool": "error", "icon": "⚠️", "label": "Error parsing arguments"}
+                        continue
+                    tool_label = TOOL_LABELS.get(tool_name, tool_name)
+                    tool_icon = TOOL_ICONS.get(tool_name, "⚙️")
                     query_hint = args.get("query", "")[:60] or args.get("river", "")[:60] or ""
                     label = f"{tool_label}{': ' + query_hint if query_hint else ''}"
 
-                    yield {"type": "tool_start", "tool": tc.function.name, "icon": tool_icon, "label": label}
+                    yield {"type": "tool_start", "tool": tool_name, "icon": tool_icon, "label": label}
 
                     # Hard gate: block web_search beyond the per-turn limit regardless of tool list
-                    if tc.function.name == "web_search" and web_search_count >= MAX_WEB_SEARCHES:
+                    if tool_name == "web_search" and web_search_count >= MAX_WEB_SEARCHES:
                         result = "Web search limit reached for this response."
                         tool_sources = []
                     else:
-                        if tc.function.name == "web_search":
+                        if tool_name == "web_search":
                             web_search_count += 1
                         try:
-                            result, tool_sources = execute_tool(tc.function.name, args, live_data, db_module)
+                            result, tool_sources = execute_tool(tool_name, args, live_data, db_module)
                         except Exception as tool_err:
-                            result = f"Tool '{tc.function.name}' error: {tool_err}"
+                            result = f"Tool '{tool_name}' error: {tool_err}"
                             tool_sources = []
 
                         # Persist successful web search results to session cache
-                        if tc.function.name == "web_search" and session_cache is not None and not result.startswith("Web search error"):
+                        if tool_name == "web_search" and session_cache is not None and not result.startswith("Web search error"):
                             import time as _t
                             session_cache.setdefault("web_searches", []).append({
                                 "query": args.get("query", ""),
@@ -1007,9 +1018,9 @@ def chat_with_buddy_stream(
                         if src not in all_sources:
                             all_sources.append(src)
 
-                    yield {"type": "tool_end", "tool": tc.function.name, "icon": tool_icon, "label": label}
+                    yield {"type": "tool_end", "tool": tool_name, "icon": tool_icon, "label": label}
 
-                    if tc.function.name == "update_wiki":
+                    if tool_name == "update_wiki":
                         try:
                             parsed = json.loads(result)
                             if parsed.get("proposed"):

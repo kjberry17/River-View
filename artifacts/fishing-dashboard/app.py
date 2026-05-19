@@ -410,15 +410,19 @@ def api_chat():
             import json as _json
 
             def generate():
-                for event in chat_with_buddy_stream(
-                    user_message=user_message,
-                    conversation_history=history,
-                    live_data=live_data,
-                    db_module=db,
-                    model_key=model_key,
-                    session_cache=session_cache,
-                ):
-                    yield _json.dumps(event) + "\n"
+                try:
+                    for event in chat_with_buddy_stream(
+                        user_message=user_message,
+                        conversation_history=history,
+                        live_data=live_data,
+                        db_module=db,
+                        model_key=model_key,
+                        session_cache=session_cache,
+                    ):
+                        yield _json.dumps(event) + "\n"
+                except Exception as gen_err:
+                    yield _json.dumps({"type": "response", "content": f"⚠️ The Fisher encountered a streaming error: {str(gen_err)[:300]}"}) + "\n"
+                    yield _json.dumps({"type": "done", "sources": [], "wiki_proposals": []}) + "\n"
             from flask import Response
             return Response(generate(), mimetype="application/x-ndjson")
 
