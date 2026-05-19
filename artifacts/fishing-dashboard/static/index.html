@@ -2456,9 +2456,45 @@ async function sendChat() {
     let toolPills = [];
     let rawLineCount = 0;
 
+    const handleStreamLine = (line) => {
+      if (!line.trim()) return;
+      rawLineCount++;
+      console.log('[AI Buddy] Stream line', rawLineCount, ':', line.slice(0, 200));
+      try {
+        const event = JSON.parse(line);
+        console.log('[AI Buddy] Event type:', event.type, event.error ? '| error: ' + event.error : '');
+
+        if (event.type === 'tool_start') {
+          showWorkingIndicator();
+          const pill = showToolPill(event.icon, event.label);
+          toolPills.push(pill);
+        } else if (event.type === 'tool_end') {
+          // pill stays, working indicator stays
+        } else if (event.type === 'response') {
+          toolPills.forEach(p => p.remove());
+          toolPills = [];
+          removeWorkingIndicator();
+          responseText = event.content || '';
+          sources = event.sources || sources;
+          wikiProposals = event.wiki_proposals || [];
+          console.log('[AI Buddy] Response content length:', responseText.length);
+        } else if (event.type === 'done') {
+          sources = event.sources || sources;
+          wikiProposals = event.wiki_proposals || wikiProposals;
+        } else if (event.type === 'error') {
+          console.error('[AI Buddy] Server-sent error event:', event.error || event.message || JSON.stringify(event));
+        }
+      } catch (e) {
+        console.error('[AI Buddy] JSON parse error on line:', line.slice(0, 300), '| error:', e.message);
+      }
+    };
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
+        buffer += decoder.decode();
+        handleStreamLine(buffer);
+        buffer = '';
         console.log('[AI Buddy] Stream done. Total lines received:', rawLineCount, '| responseText length:', responseText.length);
         break;
       }
@@ -2468,36 +2504,7 @@ async function sendChat() {
       buffer = lines.pop() || '';
 
       for (const line of lines) {
-        if (!line.trim()) continue;
-        rawLineCount++;
-        console.log('[AI Buddy] Stream line', rawLineCount, ':', line.slice(0, 200));
-        try {
-          const event = JSON.parse(line);
-          console.log('[AI Buddy] Event type:', event.type, event.error ? '| error: ' + event.error : '');
-
-          if (event.type === 'tool_start') {
-            showWorkingIndicator();
-            const pill = showToolPill(event.icon, event.label);
-            toolPills.push(pill);
-          } else if (event.type === 'tool_end') {
-            // pill stays, working indicator stays
-          } else if (event.type === 'response') {
-            toolPills.forEach(p => p.remove());
-            toolPills = [];
-            removeWorkingIndicator();
-            responseText = event.content || '';
-            sources = event.sources || sources;
-            wikiProposals = event.wiki_proposals || [];
-            console.log('[AI Buddy] Response content length:', responseText.length);
-          } else if (event.type === 'done') {
-            sources = event.sources || sources;
-            wikiProposals = event.wiki_proposals || wikiProposals;
-          } else if (event.type === 'error') {
-            console.error('[AI Buddy] Server-sent error event:', event.error || event.message || JSON.stringify(event));
-          }
-        } catch (e) {
-          console.error('[AI Buddy] JSON parse error on line:', line.slice(0, 300), '| error:', e.message);
-        }
+        handleStreamLine(line);
       }
     }
 
