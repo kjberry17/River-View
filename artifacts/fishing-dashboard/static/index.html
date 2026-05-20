@@ -2534,7 +2534,7 @@ async function sendChat() {
       } else if (parseErrors > 0 && rawLineCount === 0) {
         errMsg = '⚠️ Received malformed data from the server. Please try again.';
       } else {
-        errMsg = '⚠️ The Fisher processed your request but the response was empty — this sometimes happens with free AI models under load. Please try again.';
+        errMsg = '⚠️ The Fisher processed your request but the response was empty. Please try again.';
       }
       appendAssistantMsg(errMsg, [], []);
     }
