@@ -7,7 +7,7 @@ try:
 except ImportError:
     st = None
 
-from openai import OpenAI, PermissionDeniedError, RateLimitError, APIStatusError
+from openai import OpenAI, PermissionDeniedError, RateLimitError, APIStatusError, APITimeoutError, APIConnectionError, BadRequestError
 
 try:
     from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -104,16 +104,28 @@ def _dedupe_models(models: list[str]) -> list[str]:
     return deduped
 
 
-def _create_completion_with_fallback(client, model_candidates: list[str], state: dict, **kwargs):
+def _create_completion_with_fallback(client, model_candidates: list[str], **kwargs):
     candidates = _dedupe_models(model_candidates)
+    if not candidates:
+        raise ValueError("No model candidates provided for completion")
+    failed_models = set()
     last_error = None
-    while state["index"] < len(candidates):
-        model = candidates[state["index"]]
+    while len(failed_models) < len(candidates):
+        # Find next untried model
+        model = None
+        for candidate in candidates:
+            if candidate not in failed_models:
+                model = candidate
+                break
+        if model is None:
+            break
         try:
-            return client.chat.completions.create(model=model, **kwargs), model
-        except (PermissionDeniedError, RateLimitError, APIStatusError) as err:
+            return client.chat.completions.create(model=model, timeout=120, **kwargs), model
+        except (PermissionDeniedError, RateLimitError, APIStatusError, APITimeoutError, APIConnectionError, BadRequestError) as err:
             last_error = err
-            state["index"] += 1
+            failed_models.add(model)
+    if last_error is None:
+        raise ValueError("All models failed without producing an error")
     raise last_error
 
 
@@ -839,10 +851,10 @@ def chat_with_buddy(
     live_data: dict,
     db_module,
     model_key: str = "⚡ DeepSeek V4 Flash (Free)",
+    session_cache: dict = None,
 ) -> tuple[str, list]:
     client = get_client()
     model_candidates = _model_candidates(model_key)
-    model_state = {"index": 0}
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(conversation_history[-14:])
@@ -856,12 +868,10 @@ def chat_with_buddy(
             response, _model = _create_completion_with_fallback(
                 client,
                 model_candidates,
-                model_state,
                 messages=messages,
                 tools=TOOLS,
                 tool_choice="auto",
                 max_tokens=2000,
-                timeout=60,
             )
             choice = response.choices[0]
             msg = choice.message
@@ -876,13 +886,22 @@ def chat_with_buddy(
                     ],
                 })
                 for tc in msg.tool_calls:
-                    args = json.loads(tc.function.arguments)
-                    _show_tool_status(tc.function.name, args)
+                    # Guard against malformed tool call objects from the model
                     try:
-                        result, _tool_sources = execute_tool(tc.function.name, args, live_data, db_module)
+                        tool_name = tc.function.name if tc.function and tc.function.name else "unknown_tool"
+                        raw_args = tc.function.arguments if tc.function else "{}"
+                        args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                    except (json.JSONDecodeError, TypeError, AttributeError) as parse_err:
+                        result = f"Tool call had malformed arguments: {parse_err}"
+                        tool_id = getattr(tc, 'id', 'unknown')
+                        messages.append({"role": "tool", "tool_call_id": tool_id, "content": result})
+                        continue
+                    _show_tool_status(tool_name, args)
+                    try:
+                        result, _tool_sources = execute_tool(tool_name, args, live_data, db_module)
                     except Exception as tool_err:
-                        result = f"Tool '{tc.function.name}' error: {tool_err}"
-                    if tc.function.name == "update_wiki":
+                        result = f"Tool '{tool_name}' error: {tool_err}"
+                    if tool_name == "update_wiki":
                         try:
                             parsed = json.loads(result)
                             if parsed.get("proposed"):
@@ -949,7 +968,6 @@ def chat_with_buddy_stream(
 ):
     client = get_client()
     model_candidates = _model_candidates(model_key)
-    model_state = {"index": 0}
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(conversation_history[-14:])
@@ -980,13 +998,11 @@ def chat_with_buddy_stream(
             response, _model = _create_completion_with_fallback(
                 client,
                 model_candidates,
-                model_state,
                 messages=messages,
                 tools=active_tools,
                 # Force a text response on the last iteration — no more tool calls
                 tool_choice="none" if is_last else "auto",
                 max_tokens=2000,
-                timeout=60,
             )
             choice = response.choices[0]
             msg = choice.message
@@ -1067,11 +1083,9 @@ def chat_with_buddy_stream(
         fallback, _model = _create_completion_with_fallback(
             client,
             model_candidates,
-            model_state,
             messages=messages,
             tool_choice="none",
             max_tokens=2000,
-            timeout=60,
         )
         content = fallback.choices[0].message.content or "I gathered the data but ran out of space to respond. Try asking a more specific question."
         yield {"type": "response", "content": content}
