@@ -2456,12 +2456,20 @@ async function sendChat() {
     let toolPills = [];
     let rawLineCount = 0;
 
+    let parseErrors = 0;
+
     const handleStreamLine = (line) => {
       if (!line.trim()) return;
-      rawLineCount++;
-      console.log('[AI Buddy] Stream line', rawLineCount, ':', line.slice(0, 200));
       try {
         const event = JSON.parse(line);
+
+        if (event.type === 'ping') {
+          console.log('[AI Buddy] ♥ keepalive ping');
+          return;
+        }
+
+        rawLineCount++;
+        console.log('[AI Buddy] Stream line', rawLineCount, ':', line.slice(0, 200));
         console.log('[AI Buddy] Event type:', event.type, event.error ? '| error: ' + event.error : '');
 
         if (event.type === 'tool_start') {
@@ -2485,6 +2493,7 @@ async function sendChat() {
           console.error('[AI Buddy] Server-sent error event:', event.error || event.message || JSON.stringify(event));
         }
       } catch (e) {
+        parseErrors++;
         console.error('[AI Buddy] JSON parse error on line:', line.slice(0, 300), '| error:', e.message);
       }
     };
@@ -2518,8 +2527,16 @@ async function sendChat() {
       buddyHistory.push({ role: 'user', content: message });
       buddyHistory.push({ role: 'assistant', content: responseText });
     } else {
-      console.error('[AI Buddy] Empty responseText after stream — check server logs above');
-      appendAssistantMsg('⚠️ No response received.', [], []);
+      console.error('[AI Buddy] Empty responseText after stream — rawLineCount:', rawLineCount, 'parseErrors:', parseErrors);
+      let errMsg;
+      if (rawLineCount === 0 && parseErrors === 0) {
+        errMsg = '⚠️ The connection dropped before The Fisher could respond. Please try again.';
+      } else if (parseErrors > 0 && rawLineCount === 0) {
+        errMsg = '⚠️ Received malformed data from the server. Please try again.';
+      } else {
+        errMsg = '⚠️ The Fisher processed your request but the response was empty — this sometimes happens with free AI models under load. Please try again.';
+      }
+      appendAssistantMsg(errMsg, [], []);
     }
   } catch (e) {
     console.error('[AI Buddy] Caught exception:', e);

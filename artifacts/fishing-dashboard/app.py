@@ -408,23 +408,54 @@ def api_chat():
         if use_stream:
             from ai_buddy import chat_with_buddy_stream
             import json as _json
+            import threading as _threading
+            import queue as _queue
 
             def generate():
-                try:
-                    for event in chat_with_buddy_stream(
-                        user_message=user_message,
-                        conversation_history=history,
-                        live_data=live_data,
-                        db_module=db,
-                        model_key=model_key,
-                        session_cache=session_cache,
-                    ):
+                event_q = _queue.Queue()
+                _DONE = object()
+
+                def _run():
+                    try:
+                        for event in chat_with_buddy_stream(
+                            user_message=user_message,
+                            conversation_history=history,
+                            live_data=live_data,
+                            db_module=db,
+                            model_key=model_key,
+                            session_cache=session_cache,
+                        ):
+                            event_q.put(event)
+                    except Exception as gen_err:
+                        event_q.put({"type": "response", "content": f"⚠️ The Fisher hit a streaming error: {str(gen_err)[:300]}"})
+                        event_q.put({"type": "done", "sources": [], "wiki_proposals": []})
+                    finally:
+                        event_q.put(_DONE)
+
+                t = _threading.Thread(target=_run, daemon=True)
+                t.start()
+
+                response_sent = False
+                while True:
+                    try:
+                        event = event_q.get(timeout=18)
+                        if event is _DONE:
+                            break
+                        if event.get("type") == "response":
+                            response_sent = True
                         yield _json.dumps(event) + "\n"
-                except Exception as gen_err:
-                    yield _json.dumps({"type": "response", "content": f"⚠️ The Fisher encountered a streaming error: {str(gen_err)[:300]}"}) + "\n"
+                    except _queue.Empty:
+                        yield _json.dumps({"type": "ping"}) + "\n"
+
+                if not response_sent:
+                    yield _json.dumps({"type": "response", "content": "⚠️ The Fisher ran out of time gathering data. Please try again — a simpler question may respond faster."}) + "\n"
                     yield _json.dumps({"type": "done", "sources": [], "wiki_proposals": []}) + "\n"
-            from flask import Response
-            return Response(generate(), mimetype="application/x-ndjson")
+
+            from flask import Response, stream_with_context
+            resp = Response(stream_with_context(generate()), mimetype="application/x-ndjson")
+            resp.headers["X-Accel-Buffering"] = "no"
+            resp.headers["Cache-Control"] = "no-cache"
+            return resp
 
         from ai_buddy import chat_with_buddy
         response, wiki_proposals = chat_with_buddy(
