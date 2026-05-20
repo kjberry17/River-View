@@ -25,20 +25,20 @@ except ImportError:
     wait_exponential = lambda **kw: 0
     retry_if_exception_type = lambda *exs: False
 
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 MODEL_FALLBACK_CHAIN = [
-    "deepseek/deepseek-v4-flash:free",
-    "minimax/minimax-m2.5:free",
-    "z-ai/glm-4.5-air:free",
+    "gpt-4o-mini",
+    "gpt-4o",
+    "gpt-4o-mini",
 ]
 
 MODELS = {
-    "⚡ DeepSeek V4 Flash": MODEL_FALLBACK_CHAIN[0],
-    "⚡ DeepSeek V4 Flash (Free)": MODEL_FALLBACK_CHAIN[0],
+    "⚡ GPT-4o Mini": "gpt-4o-mini",
+    "⚡ GPT-4o": "gpt-4o",
 }
 
-FREE_FALLBACK = MODEL_FALLBACK_CHAIN[0]
+FREE_FALLBACK = "gpt-4o-mini"
 
 SYSTEM_PROMPT = """You are a deeply knowledgeable, seasoned Oregon fly and tenkara fishing guide named "The Fisher".
 
@@ -88,9 +88,7 @@ FORMAT LIKE A PREMIUM FISHING REPORT: Use ## headings for sections (e.g. "## �
 
 def get_client():
     return OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY,
-        default_headers={"HTTP-Referer": "https://oregon-fishing-dashboard.replit.app"},
+        api_key=OPENAI_API_KEY,
     )
 
 
@@ -896,7 +894,7 @@ def chat_with_buddy(
     conversation_history: list,
     live_data: dict,
     db_module,
-    model_key: str = "⚡ DeepSeek V4 Flash (Free)",
+    model_key: str = "⚡ GPT-4o Mini",
     session_cache: dict = None,
 ) -> tuple[str, list]:
     client = get_client()
@@ -981,15 +979,15 @@ def chat_with_buddy(
 
     except PermissionDeniedError:
         logger.warning("chat_response path=permission_denied")
-        return "⚠️ All configured OpenRouter models were denied. Try again in a minute or check OpenRouter model availability.", []
+        return "⚠️ OpenAI API key is invalid or lacks permission. Check that OPENAI_API_KEY is set correctly.", []
 
     except RateLimitError:
         logger.warning("chat_response path=rate_limited")
-        return "⚠️ All configured OpenRouter fallback models are rate-limited. Wait 30 seconds and try again.", []
+        return "⚠️ OpenAI rate limit hit. Wait a moment and try again.", []
 
     except APIStatusError as e:
         logger.error("chat_response path=api_status_error status_code=%s", e.status_code)
-        return f"⚠️ OpenRouter API error after trying all fallback models ({e.status_code}): {e.message[:200]}", []
+        return f"⚠️ OpenAI API error ({e.status_code}): {e.message[:200]}", []
 
     except Exception as e:
         logger.error("chat_response path=exception error=%s", type(e).__name__)
@@ -1035,7 +1033,7 @@ def chat_with_buddy_stream(
     conversation_history: list,
     live_data: dict,
     db_module,
-    model_key: str = "⚡ DeepSeek V4 Flash (Free)",
+    model_key: str = "⚡ GPT-4o Mini",
     session_cache: dict = None,
 ):
     client = get_client()
@@ -1167,17 +1165,17 @@ def chat_with_buddy_stream(
 
     except PermissionDeniedError:
         logger.warning("chat_stream_response path=permission_denied")
-        yield {"type": "response", "content": "⚠️ All configured OpenRouter models were denied. Try again in a minute or check OpenRouter model availability."}
+        yield {"type": "response", "content": "⚠️ OpenAI API key is invalid or lacks permission. Check that OPENAI_API_KEY is set correctly."}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except RateLimitError:
         logger.warning("chat_stream_response path=rate_limited")
-        yield {"type": "response", "content": "⚠️ All configured OpenRouter fallback models are rate-limited. Wait 30 seconds and try again."}
+        yield {"type": "response", "content": "⚠️ OpenAI rate limit hit. Wait a moment and try again."}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except APIStatusError as e:
         logger.error("chat_stream_response path=api_status_error status_code=%s", e.status_code)
-        yield {"type": "response", "content": f"⚠️ OpenRouter API error after trying all fallback models ({e.status_code}): {e.message[:200]}"}
+        yield {"type": "response", "content": f"⚠️ OpenAI API error ({e.status_code}): {e.message[:200]}"}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except Exception as e:

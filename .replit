@@ -11,6 +11,28 @@ build = ["bash", "-lc", "python -m pip install -r artifacts/fishing-dashboard/re
 run = ["bash", "-lc", "exec bash artifacts/fishing-dashboard/start.sh"]
 
 [workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Oregon Fishing Dashboard"
+
+[[workflows.workflow]]
+name = "Oregon Fishing Dashboard"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd artifacts/fishing-dashboard && pip install -q flask flask-cors requests openai && PORT=5000 python app.py"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [agent]
 stack = "PNPM_WORKSPACE"

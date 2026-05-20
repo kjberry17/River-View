@@ -364,7 +364,7 @@ def api_chat():
     body = freq.get_json(silent=True) or {}
     user_message = (body.get("message") or "").strip()
     history = body.get("history") or []
-    model_key = body.get("model") or "⚡ DeepSeek V4 Flash (Free)"
+    model_key = body.get("model") or "⚡ GPT-4o Mini"
     use_stream = body.get("stream", False)
     session_id = (body.get("session_id") or "").strip()
     session_cache = _get_session(session_id) if session_id else {}
