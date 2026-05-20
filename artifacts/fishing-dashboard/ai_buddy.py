@@ -1,13 +1,18 @@
 import os
 import json
-import os
-
-try:
-    import streamlit as st
-except ImportError:
-    st = None
-
+import logging
 from openai import OpenAI, PermissionDeniedError, RateLimitError, APIStatusError, APITimeoutError, APIConnectionError, BadRequestError
+
+# Structured logger for ai_buddy — no sensitive data (API keys, user messages, full tool payloads)
+logger = logging.getLogger("ai_buddy")
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S"
+    ))
+    logger.addHandler(_handler)
+    logger.setLevel(logging.INFO)
 
 try:
     from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -110,6 +115,7 @@ def _create_completion_with_fallback(client, model_candidates: list[str], **kwar
         raise ValueError("No model candidates provided for completion")
     failed_models = set()
     last_error = None
+    attempt = 0
     while len(failed_models) < len(candidates):
         # Find next untried model
         model = None
@@ -119,11 +125,15 @@ def _create_completion_with_fallback(client, model_candidates: list[str], **kwar
                 break
         if model is None:
             break
+        attempt += 1
         try:
-            return client.chat.completions.create(model=model, timeout=120, **kwargs), model
+            result = client.chat.completions.create(model=model, timeout=120, **kwargs)
+            logger.info("model_attempt model=%s attempt=%d status=success", model, attempt)
+            return result, model
         except (PermissionDeniedError, RateLimitError, APIStatusError, APITimeoutError, APIConnectionError, BadRequestError) as err:
             last_error = err
             failed_models.add(model)
+            logger.warning("model_attempt model=%s attempt=%d status=failure error=%s", model, attempt, type(err).__name__)
     if last_error is None:
         raise ValueError("All models failed without producing an error")
     raise last_error
@@ -341,6 +351,16 @@ TOOLS = [
 
 
 def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
+    # Log tool call start — args are truncated to avoid PII
+    logger.info("tool_call tool=%s args_keys=%s", tool_name, list(args.keys()))
+    try:
+        return _execute_tool_impl(tool_name, args, live_data, db_module)
+    except Exception as e:
+        logger.error("tool_call tool=%s status=error error=%s", tool_name, type(e).__name__)
+        return f"Tool '{tool_name}' encountered an error: {e}", []
+
+
+def _execute_tool_impl(tool_name: str, args: dict, live_data: dict, db_module) -> str:
     if tool_name == "query_wiki":
         query = args.get("query", "")
         river = args.get("river")
@@ -373,6 +393,7 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                     )
         except Exception:
             results.append("DATABASE NOT CONFIGURED: Set DATABASE_URL for Wiki, preferences, and fishing logs.")
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len("\n\n".join(results) if results else "No Wiki entries found."))
         return "\n\n".join(results) if results else "No Wiki entries found.", []
 
     elif tool_name == "get_live_data":
@@ -500,10 +521,12 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
             lines.append("\n=== USGS GAGE HEIGHT (Stage in Feet) ===")
             lines.extend(stage_rivers)
 
-        return "\n".join(lines), []
+        result_str = "\n".join(lines)
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result_str))
+        return result_str, []
 
     elif tool_name == "update_wiki":
-        return json.dumps({
+        result_json = json.dumps({
             "proposed": True,
             "entry_type": args.get("entry_type"),
             "river": args.get("river"),
@@ -512,7 +535,9 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
             "tags": args.get("tags", []),
             "confidence": args.get("confidence", "personal"),
             "requires_confirmation": args.get("requires_confirmation", True),
-        }), []
+        })
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result_json))
+        return result_json, []
 
     elif tool_name == "get_hatchery_info":
         from hatcheries import OREGON_HATCHERIES
@@ -531,31 +556,49 @@ def execute_tool(tool_name: str, args: dict, live_data: dict, db_module) -> str:
                 f"🏭 {h['name']} ({h['region']}): {', '.join(h['species'])} | "
                 f"River: {h['river_system']} | {h.get('notes', '')}"
             )
-        return "\n".join(results) if results else "No hatcheries found matching criteria.", []
+        result = "\n".join(results) if results else "No hatcheries found matching criteria."
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result))
+        return result, []
 
     elif tool_name == "web_search":
-        return _execute_web_search(args)
+        result, sources = _execute_web_search(args)
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result))
+        return result, sources
 
     elif tool_name == "get_snowpack":
-        return _execute_snowpack(args), []
+        result = _execute_snowpack(args)
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result))
+        return result, []
 
     elif tool_name == "get_drought":
-        return _execute_drought(args), []
+        result = _execute_drought(args)
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result))
+        return result, []
 
     elif tool_name == "get_air_quality":
-        return _execute_air_quality(args), []
+        result = _execute_air_quality(args)
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result))
+        return result, []
 
     elif tool_name == "get_marine_forecast":
-        return _execute_marine_forecast(args), []
+        result = _execute_marine_forecast(args)
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result))
+        return result, []
 
     elif tool_name == "get_wildlife_sightings":
-        return _execute_wildlife(args), []
+        result = _execute_wildlife(args)
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result))
+        return result, []
 
     elif tool_name == "get_dam_passage":
-        return _execute_dam_passage(args), []
+        result = _execute_dam_passage(args)
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result))
+        return result, []
 
     elif tool_name == "get_fishing_reports":
-        return _execute_fishing_reports(args)
+        result, sources = _execute_fishing_reports(args)
+        logger.info("tool_call tool=%s status=success result_chars=%d", tool_name, len(result))
+        return result, sources
 
     return f"Unknown tool: {tool_name}", []
 
@@ -910,20 +953,26 @@ def chat_with_buddy(
                             pass
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
             else:
+                logger.info("chat_response path=text_response")
                 return msg.content or "No response generated.", pending_wiki_proposals
 
     except PermissionDeniedError:
+        logger.warning("chat_response path=permission_denied")
         return "⚠️ All configured OpenRouter models were denied. Try again in a minute or check OpenRouter model availability.", []
 
     except RateLimitError:
+        logger.warning("chat_response path=rate_limited")
         return "⚠️ All configured OpenRouter fallback models are rate-limited. Wait 30 seconds and try again.", []
 
     except APIStatusError as e:
+        logger.error("chat_response path=api_status_error status_code=%s", e.status_code)
         return f"⚠️ OpenRouter API error after trying all fallback models ({e.status_code}): {e.message[:200]}", []
 
     except Exception as e:
+        logger.error("chat_response path=exception error=%s", type(e).__name__)
         return f"⚠️ The Fisher encountered an issue: {str(e)[:300]}", []
 
+    logger.warning("chat_response path=loop_exhausted")
     return "I got turned around in the current. Could you rephrase that?", pending_wiki_proposals
 
 
@@ -1075,6 +1124,7 @@ def chat_with_buddy_stream(
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
             else:
                 content = msg.content or "I have the data but had trouble forming a response — please try again."
+                logger.info("chat_stream_response path=text_response")
                 yield {"type": "response", "content": content}
                 yield {"type": "done", "sources": all_sources, "wiki_proposals": pending_wiki_proposals}
                 return
@@ -1088,21 +1138,26 @@ def chat_with_buddy_stream(
             max_tokens=2000,
         )
         content = fallback.choices[0].message.content or "I gathered the data but ran out of space to respond. Try asking a more specific question."
+        logger.info("chat_stream_response path=fallback_response")
         yield {"type": "response", "content": content}
         yield {"type": "done", "sources": all_sources, "wiki_proposals": pending_wiki_proposals}
 
     except PermissionDeniedError:
+        logger.warning("chat_stream_response path=permission_denied")
         yield {"type": "response", "content": "⚠️ All configured OpenRouter models were denied. Try again in a minute or check OpenRouter model availability."}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except RateLimitError:
+        logger.warning("chat_stream_response path=rate_limited")
         yield {"type": "response", "content": "⚠️ All configured OpenRouter fallback models are rate-limited. Wait 30 seconds and try again."}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except APIStatusError as e:
+        logger.error("chat_stream_response path=api_status_error status_code=%s", e.status_code)
         yield {"type": "response", "content": f"⚠️ OpenRouter API error after trying all fallback models ({e.status_code}): {e.message[:200]}"}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except Exception as e:
+        logger.error("chat_stream_response path=exception error=%s", type(e).__name__)
         yield {"type": "response", "content": f"⚠️ The Fisher encountered an issue: {str(e)[:300]}"}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
