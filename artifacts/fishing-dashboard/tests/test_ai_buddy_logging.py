@@ -171,7 +171,7 @@ class TestResponsePathLogging:
 
     def test_chat_with_buddy_logs_permission_denied_path(self, caplog_info):
         """chat_with_buddy logs permission_denied path on PermissionDeniedError"""
-        with patch('ai_buddy.get_client') as mock_get_client:
+        with patch('ai_buddy.get_client') as mock_get_client, patch('ai_buddy.OPENAI_API_KEY', ''):
             from openai import PermissionDeniedError
 
             mock_client = MagicMock()
@@ -199,7 +199,7 @@ class TestResponsePathLogging:
 
     def test_chat_with_buddy_logs_rate_limited_path(self, caplog_info):
         """chat_with_buddy logs rate_limited path on RateLimitError"""
-        with patch('ai_buddy.get_client') as mock_get_client:
+        with patch('ai_buddy.get_client') as mock_get_client, patch('ai_buddy.OPENAI_API_KEY', ''):
             from openai import RateLimitError
 
             mock_client = MagicMock()

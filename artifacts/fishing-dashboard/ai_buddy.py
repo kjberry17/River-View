@@ -26,6 +26,8 @@ except ImportError:
     retry_if_exception_type = lambda *exs: False
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_FALLBACK_MODEL = os.environ.get("OPENAI_FALLBACK_MODEL", "gpt-4o-mini")
 
 MODEL_FALLBACK_CHAIN = [
     "deepseek/deepseek-v4-flash:free",
@@ -94,6 +96,10 @@ def get_client():
     )
 
 
+def get_openai_client():
+    return OpenAI(api_key=OPENAI_API_KEY)
+
+
 def _model_candidates(model_key: str) -> list[str]:
     selected_model = MODELS.get(model_key, FREE_FALLBACK)
     return [model for model in [selected_model, *MODEL_FALLBACK_CHAIN] if model]
@@ -109,7 +115,7 @@ def _dedupe_models(models: list[str]) -> list[str]:
     return deduped
 
 
-def _create_completion_with_fallback(client, model_candidates: list[str], **kwargs):
+def _create_completion_with_fallback(client, model_candidates: list[str], provider_name: str = "openrouter", **kwargs):
     candidates = _dedupe_models(model_candidates)
     if not candidates:
         raise ValueError("No model candidates provided for completion")
@@ -128,14 +134,50 @@ def _create_completion_with_fallback(client, model_candidates: list[str], **kwar
         attempt += 1
         try:
             result = client.chat.completions.create(model=model, timeout=120, **kwargs)
-            logger.info("model_attempt model=%s attempt=%d status=success", model, attempt)
+            logger.info("model_attempt provider=%s model=%s attempt=%d status=success", provider_name, model, attempt)
             return result, model
         except (PermissionDeniedError, RateLimitError, APIStatusError, APITimeoutError, APIConnectionError, BadRequestError) as err:
             last_error = err
             failed_models.add(model)
-            logger.warning("model_attempt model=%s attempt=%d status=failure error=%s", model, attempt, type(err).__name__)
+            logger.warning("model_attempt provider=%s model=%s attempt=%d status=failure error=%s", provider_name, model, attempt, type(err).__name__)
     if last_error is None:
         raise ValueError("All models failed without producing an error")
+    raise last_error
+
+
+def _create_completion_with_provider_fallback(primary_client, model_candidates: list[str], **kwargs):
+    providers = []
+    if primary_client is not None:
+        providers.append(("openrouter", primary_client, model_candidates))
+    elif OPENROUTER_API_KEY:
+        providers.append(("openrouter", get_client(), model_candidates))
+    else:
+        logger.warning("provider_skip provider=openrouter reason=missing_api_key")
+
+    if OPENAI_API_KEY:
+        providers.append(("openai", get_openai_client(), [OPENAI_FALLBACK_MODEL]))
+    else:
+        logger.warning("provider_skip provider=openai reason=missing_api_key")
+
+    if not providers:
+        raise ValueError("No configured AI providers. Set OPENROUTER_API_KEY or OPENAI_API_KEY.")
+
+    last_error = None
+    for provider_name, client, candidates in providers:
+        try:
+            result, used_model = _create_completion_with_fallback(
+                client,
+                candidates,
+                provider_name=provider_name,
+                **kwargs,
+            )
+            return result, used_model
+        except (PermissionDeniedError, RateLimitError, APIStatusError, APITimeoutError, APIConnectionError, BadRequestError) as err:
+            last_error = err
+            logger.warning("provider_attempt provider=%s status=failure error=%s", provider_name, type(err).__name__)
+
+    if last_error is None:
+        raise ValueError("All providers failed without producing an error")
     raise last_error
 
 
@@ -922,7 +964,7 @@ def chat_with_buddy(
 
     try:
         for _ in range(max_iterations):
-            response, _model = _create_completion_with_fallback(
+            response, _model = _create_completion_with_provider_fallback(
                 client,
                 model_candidates,
                 messages=messages,
@@ -981,15 +1023,15 @@ def chat_with_buddy(
 
     except PermissionDeniedError:
         logger.warning("chat_response path=permission_denied")
-        return "⚠️ All configured OpenRouter models were denied. Try again in a minute or check OpenRouter model availability.", []
+        return "⚠️ All configured AI models were denied. Check OpenRouter/OpenAI key permissions and model availability.", []
 
     except RateLimitError:
         logger.warning("chat_response path=rate_limited")
-        return "⚠️ All configured OpenRouter fallback models are rate-limited. Wait 30 seconds and try again.", []
+        return "⚠️ All configured AI fallback models are rate-limited. Wait 30 seconds and try again.", []
 
     except APIStatusError as e:
         logger.error("chat_response path=api_status_error status_code=%s", e.status_code)
-        return f"⚠️ OpenRouter API error after trying all fallback models ({e.status_code}): {e.message[:200]}", []
+        return f"⚠️ AI provider error after trying all fallback models ({e.status_code}): {e.message[:200]}", []
 
     except Exception as e:
         logger.error("chat_response path=exception error=%s", type(e).__name__)
@@ -1067,7 +1109,7 @@ def chat_with_buddy_stream(
             is_last = iteration == max_iterations - 1
             # Remove web_search from available tools once limit is reached
             active_tools = [t for t in TOOLS if not (web_search_count >= MAX_WEB_SEARCHES and t["function"]["name"] == "web_search")]
-            response, _model = _create_completion_with_fallback(
+            response, _model = _create_completion_with_provider_fallback(
                 client,
                 model_candidates,
                 messages=messages,
@@ -1153,7 +1195,7 @@ def chat_with_buddy_stream(
                 return
 
         # Safety net: loop exhausted without a text response — force one final call
-        fallback, _model = _create_completion_with_fallback(
+        fallback, _model = _create_completion_with_provider_fallback(
             client,
             model_candidates,
             messages=messages,
@@ -1167,17 +1209,17 @@ def chat_with_buddy_stream(
 
     except PermissionDeniedError:
         logger.warning("chat_stream_response path=permission_denied")
-        yield {"type": "response", "content": "⚠️ All configured OpenRouter models were denied. Try again in a minute or check OpenRouter model availability."}
+        yield {"type": "response", "content": "⚠️ All configured AI models were denied. Check OpenRouter/OpenAI key permissions and model availability."}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except RateLimitError:
         logger.warning("chat_stream_response path=rate_limited")
-        yield {"type": "response", "content": "⚠️ All configured OpenRouter fallback models are rate-limited. Wait 30 seconds and try again."}
+        yield {"type": "response", "content": "⚠️ All configured AI fallback models are rate-limited. Wait 30 seconds and try again."}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except APIStatusError as e:
         logger.error("chat_stream_response path=api_status_error status_code=%s", e.status_code)
-        yield {"type": "response", "content": f"⚠️ OpenRouter API error after trying all fallback models ({e.status_code}): {e.message[:200]}"}
+        yield {"type": "response", "content": f"⚠️ AI provider error after trying all fallback models ({e.status_code}): {e.message[:200]}"}
         yield {"type": "done", "sources": [], "wiki_proposals": []}
 
     except Exception as e:

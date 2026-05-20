@@ -250,6 +250,31 @@ class TestFallbackChain:
         assert models_called == ["model/1", "model/2", "model/3"]
         assert mock_client.chat.completions.create.call_count == 3
 
+    def test_provider_fallback_uses_openai_after_openrouter_failure(self):
+        """OpenAI fallback is attempted after the OpenRouter model chain fails."""
+        from ai_buddy import _create_completion_with_provider_fallback
+
+        openrouter_client = MagicMock()
+        openrouter_client.chat.completions.create.side_effect = [
+            _make_exception(RateLimitError, "rate limited"),
+        ]
+
+        openai_client = MagicMock()
+        openai_client.chat.completions.create.return_value = _mock_response("OpenAI recovered")
+
+        with patch("ai_buddy.OPENAI_API_KEY", "test-openai-key"):
+            with patch("ai_buddy.get_openai_client", return_value=openai_client):
+                result, used_model = _create_completion_with_provider_fallback(
+                    openrouter_client,
+                    ["openrouter/fail"],
+                    messages=[{"role": "user", "content": "hi"}],
+                )
+
+        assert "OpenAI recovered" in result.choices[0].message.content
+        assert used_model == "gpt-4o-mini"
+        assert openrouter_client.chat.completions.create.call_count == 1
+        assert openai_client.chat.completions.create.call_count == 1
+
 
 # ---------------------------------------------------------------------------
 # Exception Handling Tests

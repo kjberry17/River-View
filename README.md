@@ -13,6 +13,9 @@ before starting `artifacts/fishing-dashboard/start.sh` on port `5000`.
 Set secrets in Replit Secrets rather than committing an `.env` file:
 
 - `OPENROUTER_API_KEY`: required for AI chat.
+- `OPENAI_API_KEY`: optional fallback for AI chat when OpenRouter models fail.
+- `OPENAI_FALLBACK_MODEL`: optional OpenAI fallback model override. Defaults to
+  `gpt-4o-mini`.
 - `DATABASE_URL`: optional for boot, recommended for wiki entries,
   preferences, fishing logs, and chat tools that use persistence.
 - `AIRNOW_API_KEY`: optional for live AQI data. AQI routes fall back to
