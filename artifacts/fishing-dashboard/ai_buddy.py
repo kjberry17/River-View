@@ -604,7 +604,10 @@ def _execute_tool_impl(tool_name: str, args: dict, live_data: dict, db_module) -
 
 
 def _show_tool_status(tool_name: str, args: dict):
-    if st is None:
+    # Guard: st (streamlit) is not available in Flask context — this is a no-op
+    try:
+        st
+    except NameError:
         return
     icons = {
         "query_wiki": "📚",
