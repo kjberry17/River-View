@@ -904,6 +904,17 @@ def chat_with_buddy(
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(conversation_history[-14:])
+
+    # Inject prior web search results from this session so the model can reuse them
+    if session_cache:
+        prior = session_cache.get("web_searches", [])
+        if prior:
+            context = "**Web search data already retrieved this session — use this before searching again:**\n"
+            for s in prior[-5:]:
+                context += f"\n---\nQuery: {s['query']}\n{s['result']}\n"
+            messages.append({"role": "user", "content": context})
+            messages.append({"role": "assistant", "content": "Understood — I have that search data from our session and will use it."})
+
     messages.append({"role": "user", "content": user_message})
 
     pending_wiki_proposals = []
@@ -954,6 +965,15 @@ def chat_with_buddy(
                                 pending_wiki_proposals.append(parsed)
                         except Exception:
                             pass
+                    # Persist successful web search results to session cache
+                    if tool_name == "web_search" and session_cache is not None and not result.startswith("Web search error"):
+                        import time as _t
+                        session_cache.setdefault("web_searches", []).append({
+                            "query": args.get("query", ""),
+                            "result": result[:600],
+                            "timestamp": _t.time(),
+                        })
+                        session_cache["web_searches"] = session_cache["web_searches"][-5:]
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
             else:
                 logger.info("chat_response path=text_response")

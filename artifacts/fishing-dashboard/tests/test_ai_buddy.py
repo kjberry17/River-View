@@ -635,12 +635,7 @@ class TestChatWithBuddyNonStreaming:
                 mock_execute.assert_called()
 
     def test_session_cache_used_for_web_search_deduplication(self, mock_db_module):
-        """VAL-NS-002: session_cache with prior web searches is injected into messages.
-        
-        NOTE: The current implementation of chat_with_buddy does NOT inject prior web searches
-        into messages - that behavior is only implemented in chat_with_buddy_stream. This test
-        documents the expected behavior per VAL-NS-002 but will fail until the feature is added.
-        """
+        """VAL-NS-002: session_cache with prior web searches is injected into messages."""
         from ai_buddy import chat_with_buddy
 
         mock_client = MagicMock()
@@ -666,12 +661,56 @@ class TestChatWithBuddyNonStreaming:
             call_kwargs = mock_client.chat.completions.create.call_args.kwargs
             messages = call_kwargs.get("messages", [])
 
-            # NOTE: chat_with_buddy does NOT currently inject prior web searches into messages.
-            # This assertion documents the EXPECTED behavior per VAL-NS-002.
-            # The following will pass once the feature is implemented:
-            # messages_content = json.dumps(messages)
-            # assert "Deschutes River fishing report" in messages_content or "web_searches" in messages_content
+            # Verify prior web searches are injected into messages
+            messages_content = json.dumps(messages)
+            assert "Deschutes River fishing report" in messages_content, "Prior web search query should be in messages"
+            assert "Great fishing on the Deschutes" in messages_content, "Prior web search result should be in messages"
             assert isinstance(response, str)
+
+    def test_session_cache_persists_web_search_results(self, mock_db_module):
+        """New web search results are persisted to session_cache and capped at 5 entries."""
+        from ai_buddy import chat_with_buddy
+
+        mock_client = MagicMock()
+
+        # First response: tool call to web_search
+        # NOTE: Must set tc.function.name directly, not via MagicMock(name=...) which sets internal mock name
+        tool_call_mock = MagicMock()
+        tool_call_mock.id = "call_web"
+        tool_call_mock.function = MagicMock()
+        tool_call_mock.function.name = "web_search"
+        tool_call_mock.function.arguments = '{"query": "Deschutes fishing report"}'
+
+        tool_call_response = _mock_response(
+            content="Let me search for that...",
+            tool_calls=[tool_call_mock],
+            finish_reason="tool_calls",
+        )
+
+        # Second response: text response
+        text_response = _mock_response(content="Found a great fishing report!")
+
+        mock_client.chat.completions.create.side_effect = [tool_call_response, text_response]
+
+        session_cache = {"web_searches": []}
+
+        with patch("ai_buddy.get_client", return_value=mock_client):
+            with patch("ai_buddy.execute_tool") as mock_execute:
+                mock_execute.return_value = ("Deschutes fishing report: Great conditions!", [])
+
+                response, wiki_proposals = chat_with_buddy(
+                    user_message="Any recent fishing reports on the Deschutes?",
+                    conversation_history=[],
+                    live_data={},
+                    db_module=mock_db_module,
+                    session_cache=session_cache,
+                )
+
+                # After the call, session_cache should have the web search persisted
+                assert "web_searches" in session_cache
+                assert len(session_cache["web_searches"]) == 1
+                # Should be capped at 5 entries
+                assert len(session_cache["web_searches"]) <= 5
 
 
 # ---------------------------------------------------------------------------
